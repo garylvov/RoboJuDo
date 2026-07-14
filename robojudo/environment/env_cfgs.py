@@ -83,7 +83,7 @@ class UnitreeEnvCfg(RobotEnvCfg):
         net_if: str = "eth0"
         """network interface to communicate with the robot"""
 
-        robot: Literal["h1", "g1"]
+        robot: Literal["h1", "g1", "h1_2"]
         msg_type: Literal["hg", "go"]
         control_mode: str = "position"
         hand_type: Literal["Dex-3", "Inspire", "NONE"] = "NONE"

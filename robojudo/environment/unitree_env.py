@@ -138,8 +138,9 @@ class UnitreeEnv(Environment):
         self.lowcmd_send_thread = RecurrentThread(interval=self._control_dt, target=self.send_cmd, name="control")
         self.lowcmd_send_thread.Start()
 
-        # born place alignment extra for h1 torso
-        if self.robot == "h1":
+        # born place alignment extra for h1 / h1_2 torso (both mount the IMU on
+        # the torso and need the torso->pelvis transform)
+        if self.robot in ("h1", "h1_2"):
             self.torso_align = TransformAlignment()
 
         self.self_check()
@@ -179,7 +180,7 @@ class UnitreeEnv(Environment):
         super().set_born_place(quat_, pos_)
         logger.info(f"[UnitreeEnv] born place set to pos: {pos_}, quat: {quat_}")
 
-        if self.robot == "h1":
+        if self.robot in ("h1", "h1_2"):
             torso_quat = self.torso_quat
             torso_quat = calc_heading_quat_np(torso_quat)  # keep yaw only
             self.torso_align.set_base(quat=torso_quat)
@@ -253,6 +254,37 @@ class UnitreeEnv(Environment):
             self._base_ang_vel = base_ang_vel
             self._base_rpy = sRot.from_quat(base_quat, scalar_first=True).as_euler("xyz")
 
+        elif self.robot == "h1_2":
+            # h1_2 imu is on the torso (like h1); transform to the pelvis frame.
+            # Unlike h1, the waist/torso joint is at dof index 12 (h1's was 10),
+            # resolved by name below. h1_2's joint2motor_idx is None (identity
+            # motor order) so this maps straight through. Uses list-indexing
+            # motor_state[idx].q -- the correct access form, matching the
+            # update() loop above.
+            torso_quat = np.array(self.low_state.imu_state.quaternion, dtype=np.float32)[[1, 2, 3, 0]]
+            torso_ang_vel = np.array(self.low_state.imu_state.gyroscope, dtype=np.float32)
+
+            if self.born_place_align:
+                torso_quat = self.torso_align.align_quat(torso_quat)
+
+            self._torso_quat = torso_quat
+            self._torso_ang_vel = torso_ang_vel
+
+            torso_dof = self.cfg_env.dof.joint_names.index("torso_joint")
+            waist_idx = self._dof_idx[torso_dof] if self._dof_idx is not None else torso_dof
+            waist_yaw = self.low_state.motor_state[waist_idx].q
+            waist_yaw_omega = self.low_state.motor_state[waist_idx].dq
+            base_quat, base_ang_vel = transform_imu_data(
+                waist_yaw=waist_yaw,
+                waist_yaw_omega=waist_yaw_omega,
+                imu_quat=torso_quat[[3, 0, 1, 2]],
+                imu_omega=torso_ang_vel,
+            )
+
+            self._base_quat = base_quat[[1, 2, 3, 0]]
+            self._base_ang_vel = base_ang_vel
+            self._base_rpy = sRot.from_quat(base_quat, scalar_first=True).as_euler("xyz")
+
         # odometry
         if self._odometry_type == "ZED":
             self.zed_odometry.update()
@@ -273,7 +305,7 @@ class UnitreeEnv(Environment):
         if self.update_with_fk:
             fk_info = self.fk()
             self._torso_pos = fk_info[self._torso_name]["pos"]
-            if self.robot != "h1":
+            if self.robot not in ("h1", "h1_2"):
                 self._torso_quat = fk_info[self._torso_name]["quat"]
                 self._torso_ang_vel = fk_info[self._torso_name]["ang_vel"]
 

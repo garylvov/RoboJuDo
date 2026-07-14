@@ -161,3 +161,36 @@ class TwistRedisCtrlCfg(CtrlCfg):
     redis_key: str = "action_mimic_g1"  # key to get command data from redis
 
     buffer_size: int = 5  # size of the data buffer to store recent commands
+
+
+# ==== imprint teleop integration (additive) ====
+class TeleopCtrlCfg(CtrlCfg):
+    """Config for the imprint whole-body teleop controller (TeleopCtrl).
+
+    Drives a ``imprint.robojudo.teleop`` provider (source + live retargeter)
+    that streams retargeted references into the ProtoMotions tracker via the
+    LiveRefSource seam.  See ``teleop_ctrl.py``.
+    """
+
+    ctrl_type: str = "TeleopCtrl"
+
+    source: str = "replay"  # teleop source kind: "replay" | "zmq" | "pico"
+
+    # -- replay source (playback a motion clip as if teleoperated) --
+    motion_path: str | None = None
+    motion_index: int = 0
+    pool: str | None = None
+    index: int | None = None
+    loop: bool = True
+    speed: float = 1.0
+
+    # -- zmq source (sonic 'planner' stream) --
+    zmq_host: str = "127.0.0.1"
+    zmq_port: int = 5556
+
+    # -- retargeter --
+    legs: str = "teleop"  # "teleop" | "default"
+    iters: int = 3
+    retarget: bool = True
+
+    triggers: dict[str, str] = {}

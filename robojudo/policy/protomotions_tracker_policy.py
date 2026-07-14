@@ -33,6 +33,7 @@ from robojudo.policy import Policy, policy_registry
 from robojudo.policy.policy_cfgs import PolicyCfg
 from robojudo.tools.tool_cfgs import DoFConfig
 from robojudo.utils.motion_utils import (
+    LiveRefSource,
     MotionPlayer,
     _extract_yaw_quat_np,
     apply_heading_offset_np,
@@ -131,6 +132,24 @@ class ProtoMotionsTrackerPolicy(Policy):
         # Resolve default standing pose from protomotions robot config.
         self._default_dof_pos = self._resolve_default_dof_pos(joint_names)
 
+        # --- imprint teleop seam (additive) ---
+        # By default the reference source IS the MotionPlayer (clip playback).
+        # When ``teleop_ref`` is set, swap in a LiveRefSource that is fed by an
+        # external teleop retargeter via ctrl_data.  The MotionPlayer still
+        # loads (motion_path handling above is untouched); teleop only overrides
+        # which object the policy reads references from.  Reversible: unset the
+        # cfg flag and the policy behaves exactly as before.
+        self._teleop_ref = bool(getattr(cfg_policy, "teleop_ref", False))
+        if self._teleop_ref:
+            self._ref_source = LiveRefSource(
+                default_dof_pos=self._default_dof_pos,
+                anchor_idx=self._anchor_idx,
+            )
+            logger.info("[TrackerPolicy] teleop_ref ON -- using LiveRefSource")
+        else:
+            self._ref_source = self._player
+        # --- end imprint teleop seam ---
+
         self._heading_offset = None
         self.reset()
 
@@ -211,17 +230,35 @@ class ProtoMotionsTrackerPolicy(Policy):
     def post_step_callback(self, commands=None):
         if not self._paused and not self._default_pose_mode:
             self._frame += 1
-            if self._frame >= self._player.total_frames:
-                self._frame = self._player.total_frames - 1
+            if self._frame >= self._ref_source.total_frames:
+                self._frame = self._ref_source.total_frames - 1
                 self._motion_done = True
         for cmd in commands or []:
             if cmd in ("[MOTION_RESET]", "[MOTION_FADE_IN]"):
                 self.reset()
 
     def get_observation(self, env_data, ctrl_data):
+        # --- imprint teleop seam (additive) ---
+        # Pump the latest retargeted reference from ctrl_data into the live
+        # source before it is read below.  ctrl_data is a Box; the TeleopCtrl
+        # payload lives under the "TeleopCtrl" key.  Missing/None arrays are
+        # skipped (the LiveRefSource keeps its last / seeded default value).
+        if self._teleop_ref:
+            teleop = ctrl_data.get("TeleopCtrl", {}) if ctrl_data is not None else {}
+            ref_dof_pos = teleop.get("ref_dof_pos", None)
+            ref_dof_vel = teleop.get("ref_dof_vel", None)
+            ref_body_rot = teleop.get("ref_body_rot", None)
+            if (
+                ref_dof_pos is not None
+                and ref_dof_vel is not None
+                and ref_body_rot is not None
+            ):
+                self._ref_source.update(ref_dof_pos, ref_dof_vel, ref_body_rot)
+        # --- end imprint teleop seam ---
+
         # -- Heading alignment (first step after reset) --
         if self._heading_offset is None:
-            motion_anchor_rot = self._player.get_state_at_frame(0)["body_rot"][self._anchor_idx]
+            motion_anchor_rot = self._ref_source.get_state_at_frame(0)["body_rot"][self._anchor_idx]
             robot_anchor_rot = self._get_anchor_quat(env_data)
             self._heading_offset = compute_yaw_offset_np(robot_anchor_rot, motion_anchor_rot)
 
@@ -250,9 +287,9 @@ class ProtoMotionsTrackerPolicy(Policy):
             # Clamp each future step so it never exceeds the last valid frame.
             # This repeats the last frame's references at end-of-motion instead
             # of going out of bounds.
-            last_frame = self._player.total_frames - 1
+            last_frame = self._ref_source.total_frames - 1
             clamped_steps = [min(self._frame + step, last_frame) - self._frame for step in self._future_step_indices]
-            future_refs = self._player.get_future_references(self._frame, clamped_steps)
+            future_refs = self._ref_source.get_future_references(self._frame, clamped_steps)
             future_body_rot = apply_heading_offset_np(self._heading_offset, future_refs["body_rot"])
             # Anchor-body-only rotation: [num_steps, 4]
             future_anchor_rot = future_body_rot[:, self._anchor_idx, :]
@@ -338,4 +375,4 @@ class ProtoMotionsTrackerPolicy(Policy):
         return self._stashed_pd_targets
 
     def get_init_dof_pos(self):
-        return self._player.get_state_at_frame(0)["dof_pos"].copy()
+        return self._ref_source.get_state_at_frame(0)["dof_pos"].copy()

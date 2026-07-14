@@ -29,6 +29,7 @@ import numpy as np
 
 __all__ = [
     "MotionPlayer",
+    "LiveRefSource",
     "compute_yaw_offset_np",
     "apply_heading_offset_np",
     "_extract_yaw_quat_np",
@@ -309,3 +310,109 @@ class MotionPlayer:
             f"{nf} source frames @ {1.0 / src_dt:.1f} Hz -> "
             f"{num_ctrl_frames} resampled frames @ {1.0 / control_dt:.0f} Hz"
         )
+
+
+# ---------------------------------------------------------------------------
+# LiveRefSource  (imprint teleop integration -- additive)
+# ---------------------------------------------------------------------------
+
+
+class LiveRefSource:
+    """Live (streaming) reference source that duck-types :class:`MotionPlayer`.
+
+    Instead of playing back a pre-recorded clip, this buffers the LATEST
+    reference produced by an external teleop retargeter (see
+    ``imprint.robojudo.teleop``) and serves it to the tracker policy in place
+    of a ``MotionPlayer``.  It exposes the subset of the ``MotionPlayer`` API
+    that ``ProtoMotionsTrackerPolicy`` reads:
+
+    - ``total_frames`` -- a very large constant (the stream never ends)
+    - ``get_state_at_frame(frame)`` -- returns the latest buffered reference
+      (the ``frame`` argument is ignored; there is no history)
+    - ``get_future_references(frame, step_indices)`` -- the latest reference
+      replicated ``len(step_indices)`` times (a zero-order hold: we have no
+      look-ahead for a live stream)
+    - ``update(dof_pos, dof_vel, body_rot)`` -- push a new reference
+
+    Before the first :meth:`update`, a seeded default is returned:
+    ``dof_pos = default_dof_pos`` (or zeros), ``dof_vel = 0`` and per-body
+    identity rotations (xyzw ``[0, 0, 0, 1]``), so the policy can run in the
+    hold-default-pose UX before any teleop command arrives.
+
+    Quaternion convention: **xyzw** (matches ``MotionPlayer``).
+    """
+
+    _HUGE_FRAMES = 1 << 30
+
+    def __init__(
+        self,
+        num_dofs: int = 27,
+        num_bodies: int = 29,
+        anchor_idx: int = 0,
+        default_dof_pos: np.ndarray | None = None,
+    ):
+        self._num_dofs = int(num_dofs)
+        self._num_bodies = int(num_bodies)
+        self._anchor_idx = int(anchor_idx)
+
+        if default_dof_pos is None:
+            seed_dof_pos = np.zeros(self._num_dofs, dtype=np.float32)
+        else:
+            seed_dof_pos = np.asarray(default_dof_pos, dtype=np.float32).reshape(-1)
+
+        # Seeded default reference (identity per-body rotation, zero velocity).
+        identity_rot = np.tile(
+            np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+            (self._num_bodies, 1),
+        )
+        self._dof_pos = seed_dof_pos.copy()
+        self._dof_vel = np.zeros(self._num_dofs, dtype=np.float32)
+        self._body_rot = identity_rot
+
+    @property
+    def total_frames(self) -> int:
+        return self._HUGE_FRAMES
+
+    @property
+    def num_bodies(self) -> int:
+        return self._num_bodies
+
+    @property
+    def num_dofs(self) -> int:
+        return self._num_dofs
+
+    def update(
+        self,
+        dof_pos: np.ndarray,
+        dof_vel: np.ndarray,
+        body_rot: np.ndarray,
+    ) -> None:
+        """Push the latest retargeted reference (buffered, zero-order hold)."""
+        self._dof_pos = np.asarray(dof_pos, dtype=np.float32).reshape(self._num_dofs)
+        self._dof_vel = np.asarray(dof_vel, dtype=np.float32).reshape(self._num_dofs)
+        self._body_rot = np.asarray(body_rot, dtype=np.float32).reshape(
+            self._num_bodies, 4
+        )
+
+    def get_state_at_frame(self, frame_idx: int) -> Dict[str, np.ndarray]:
+        """Return the latest buffered reference (``frame_idx`` is ignored)."""
+        return {
+            "dof_pos":  self._dof_pos,
+            "dof_vel":  self._dof_vel,
+            "body_rot": self._body_rot,
+        }
+
+    def get_future_references(
+        self,
+        frame_idx: int,
+        step_indices: List[int],
+    ) -> Dict[str, np.ndarray]:
+        """Return the latest reference replicated ``len(step_indices)`` times."""
+        n = len(step_indices)
+        return {
+            "dof_pos":  np.broadcast_to(self._dof_pos, (n, self._num_dofs)).copy(),
+            "dof_vel":  np.broadcast_to(self._dof_vel, (n, self._num_dofs)).copy(),
+            "body_rot": np.broadcast_to(
+                self._body_rot, (n, self._num_bodies, 4)
+            ).copy(),
+        }

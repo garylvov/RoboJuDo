@@ -6,10 +6,11 @@ robojudo/config/g1/g1_cfg.py's ``g1_protomotions_tracker`` entry.
 """
 
 from robojudo.config import cfg_registry
-from robojudo.controller.ctrl_cfgs import KeyboardCtrlCfg
+from robojudo.controller.ctrl_cfgs import KeyboardCtrlCfg, UnitreeCtrlCfg
 from robojudo.pipeline.pipeline_cfgs import RlPipelineCfg
 
 from .env.h1_2_mujoco_env_cfg import H1_2MujocoEnvCfg
+from .env.h1_2_real_env_cfg import H1_2RealEnvCfg, H1_2UnitreeCfg
 from .policy.h1_2_protomotions_tracker_cfg import H1_2ProtoMotionsTrackerPolicyCfg
 
 
@@ -46,3 +47,27 @@ class h1_2_protomotions_tracker(RlPipelineCfg):
     ]
 
     policy: H1_2ProtoMotionsTrackerPolicyCfg = H1_2ProtoMotionsTrackerPolicyCfg()
+
+
+@cfg_registry.register
+class h1_2_protomotions_tracker_real(h1_2_protomotions_tracker):
+    """ProtoMotions tracker on real H1_2 hardware.
+
+    Sim2sim -> sim2real by swapping the env to the real one (same pattern as
+    ``g1_protomotions_tracker_real``). ``born_place_align=False`` because the
+    policy handles heading alignment itself. Drive it via
+    ``imprint.robojudo.gated_inference`` (Enter-to-damp safety gate), not the
+    raw ``scripts/run_tracker_pipeline.py``.
+    """
+
+    env: H1_2RealEnvCfg = H1_2RealEnvCfg(
+        env_type="UnitreeEnv",
+        unitree=H1_2UnitreeCfg(
+            net_if="enp0s31f6",  # note: change to your network interface
+        ),
+        born_place_align=False,
+    )
+    ctrl: list[UnitreeCtrlCfg] = [
+        UnitreeCtrlCfg(),
+    ]
+    do_safety_check: bool = True  # enable safety check for real robot
