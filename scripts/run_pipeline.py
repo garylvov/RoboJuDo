@@ -6,6 +6,8 @@ if platform.machine().startswith("aarch64"):
     os.environ["OMP_NUM_THREADS"] = "1"
 
 import argparse
+import importlib
+import json
 import logging
 import time
 
@@ -26,16 +28,56 @@ def parse_args():
         default="g1",
         help="Name of the config class to use",
     )
+    parser.add_argument(
+        "--config-module",
+        action="append",
+        default=[],
+        help="Import a module that registers external RoboJuDo configs",
+    )
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=None,
+        help="Override the finite DeploymentPipeline step count",
+    )
+    parser.add_argument(
+        "--bootstrap",
+        default=None,
+        help="Override a DeploymentPipeline bootstrap (module:callable)",
+    )
+    parser.add_argument(
+        "--bootstrap-kwargs-json",
+        default=None,
+        help="JSON object passed to the deployment bootstrap",
+    )
     args = parser.parse_args()
     return args
 
 
 def main():
     args = parse_args()
+    for module_name in args.config_module:
+        importlib.import_module(module_name)
     logger.info(f"Using config: {args.config}")
     config_manager = ConfigManager(config_name=args.config)
 
     cfg: RlPipelineCfg = config_manager.get_cfg()
+    if args.bootstrap is not None or args.bootstrap_kwargs_json is not None:
+        if getattr(cfg, "pipeline_type", None) != "DeploymentPipeline":
+            raise ValueError("deployment bootstrap overrides require DeploymentPipeline")
+        if args.bootstrap is not None:
+            cfg.bootstrap = args.bootstrap
+        if args.bootstrap_kwargs_json is not None:
+            kwargs = json.loads(args.bootstrap_kwargs_json)
+            if not isinstance(kwargs, dict):
+                raise ValueError("--bootstrap-kwargs-json must decode to an object")
+            cfg.bootstrap_kwargs = kwargs
+    if args.steps is not None:
+        if getattr(cfg, "pipeline_type", None) != "DeploymentPipeline":
+            raise ValueError("--steps is only valid for DeploymentPipeline configs")
+        if args.steps <= 0:
+            raise ValueError("--steps must be positive")
+        cfg.steps = args.steps
 
     pipeline_type = cfg.pipeline_type
 
@@ -43,6 +85,11 @@ def main():
     logger.info(f"Using pipeline: {pipeline_type} -> {pipeline_class}")
 
     pipeline = pipeline_class(cfg=cfg)
+
+    run_to_completion = getattr(pipeline, "run_to_completion", None)
+    if run_to_completion is not None:
+        run_to_completion()
+        return
 
     if not cfg.env.is_sim:
         pipeline.prepare()

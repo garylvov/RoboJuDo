@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from robojudo.config import Config
 from robojudo.controller import CtrlCfg
@@ -24,6 +24,21 @@ class PipelineCfg(Config):
     If True, perform safety check after each step.
     We recommend enabling this, however if motion is very aggressive, you may disable it.
     """
+
+
+class DeploymentPipelineCfg(PipelineCfg):
+    """Finite deployment driven by a registered backend adapter.
+
+    ``bootstrap`` is resolved only when the pipeline is constructed.  This is
+    essential for Isaac/Newton integrations, whose bootstrap must establish the
+    simulator application boundary before importing simulator modules.
+    """
+
+    pipeline_type: str = "DeploymentPipeline"
+    adapter_type: Literal["ImprintNewtonAdapter", "ImprintMujocoAdapter"]
+    bootstrap: str
+    bootstrap_kwargs: dict[str, Any] = Field(default_factory=dict)
+    steps: int
 
 
 class RlPipelineCfg(PipelineCfg):
