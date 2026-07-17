@@ -144,6 +144,7 @@ class ProtoMotionsTrackerPolicy(Policy):
             self._ref_source = LiveRefSource(
                 default_dof_pos=self._default_dof_pos,
                 anchor_idx=self._anchor_idx,
+                control_dt=timing["control_dt"],
             )
             logger.info("[TrackerPolicy] teleop_ref ON -- using LiveRefSource")
         else:
@@ -243,7 +244,13 @@ class ProtoMotionsTrackerPolicy(Policy):
         # source before it is read below.  ctrl_data is a Box; the TeleopCtrl
         # payload lives under the "TeleopCtrl" key.  Missing/None arrays are
         # skipped (the LiveRefSource keeps its last / seeded default value).
-        if self._teleop_ref:
+        # _paused must also freeze the LIVE reference: for a MotionPlayer,
+        # pausing the frame counter (post_step_callback) is enough, but the
+        # LiveRefSource ignores the frame argument and serves whatever was
+        # last update()d -- so keep pumping while paused and the robot keeps
+        # following the operator with "freeze ON" in the log. Skipping the
+        # update leaves the last buffered reference held, which IS the freeze.
+        if self._teleop_ref and not self._paused:
             teleop = ctrl_data.get("TeleopCtrl", {}) if ctrl_data is not None else {}
             ref_dof_pos = teleop.get("ref_dof_pos", None)
             ref_dof_vel = teleop.get("ref_dof_vel", None)
@@ -307,6 +314,12 @@ class ProtoMotionsTrackerPolicy(Policy):
             "mimic.future_dof_vel": future_dof_vel[None],
             "historical.processed_actions": self._prev_actions[None, None],
         }
+        # noisy.*: ProtoMotions' observation-noise view of the robot state.
+        # Noise is training-only DR; at inference the noisy view aliases the
+        # clean tensors, so checkpoints exported with noisy_* input bindings
+        # (e.g. Track D teachers) are fed the same state arrays.
+        for _clean in ("dof_pos", "dof_vel", "anchor_rot", "root_local_ang_vel"):
+            key_to_array["noisy." + _clean] = key_to_array["current." + _clean]
         onnx_inputs = {}
         for onnx_name in self._onnx_in_names:
             sem_key = self._onnx_name_to_key.get(onnx_name)

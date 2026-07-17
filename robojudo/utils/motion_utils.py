@@ -329,9 +329,11 @@ class LiveRefSource:
     - ``total_frames`` -- a very large constant (the stream never ends)
     - ``get_state_at_frame(frame)`` -- returns the latest buffered reference
       (the ``frame`` argument is ignored; there is no history)
-    - ``get_future_references(frame, step_indices)`` -- the latest reference
-      replicated ``len(step_indices)`` times (a zero-order hold: we have no
-      look-ahead for a live stream)
+    - ``get_future_references(frame, step_indices)`` -- self-consistent
+      futures obtained by first-order integrating the latest ``dof_vel`` over
+      the requested control-step offsets (no genuine look-ahead exists for a
+      live stream; see the method docstring for why this beats a naive
+      zero-order hold for a future-conditioned tracker)
     - ``update(dof_pos, dof_vel, body_rot)`` -- push a new reference
 
     Before the first :meth:`update`, a seeded default is returned:
@@ -350,10 +352,12 @@ class LiveRefSource:
         num_bodies: int = 29,
         anchor_idx: int = 0,
         default_dof_pos: np.ndarray | None = None,
+        control_dt: float = 0.02,
     ):
         self._num_dofs = int(num_dofs)
         self._num_bodies = int(num_bodies)
         self._anchor_idx = int(anchor_idx)
+        self._control_dt = float(control_dt)
 
         if default_dof_pos is None:
             seed_dof_pos = np.zeros(self._num_dofs, dtype=np.float32)
@@ -381,6 +385,10 @@ class LiveRefSource:
     def num_dofs(self) -> int:
         return self._num_dofs
 
+    @property
+    def control_dt(self) -> float:
+        return self._control_dt
+
     def update(
         self,
         dof_pos: np.ndarray,
@@ -407,10 +415,34 @@ class LiveRefSource:
         frame_idx: int,
         step_indices: List[int],
     ) -> Dict[str, np.ndarray]:
-        """Return the latest reference replicated ``len(step_indices)`` times."""
+        """Synthesize self-consistent futures by integrating the latest velocity.
+
+        A live stream has no genuine look-ahead, but a *naive* zero-order hold
+        (replicate the single latest frame across all future steps) is worse
+        than it looks for a future-conditioned tracker: it makes
+        ``future_dof_pos`` static across steps ``[1,2,4,8]`` while
+        ``future_dof_vel`` stays nonzero -- an internally inconsistent,
+        out-of-distribution reference (during training the 4 futures genuinely
+        advance and are consistent with the reported velocity).
+
+        Instead we first-order integrate the buffered ``dof_vel`` forward over
+        the actual control-step offsets: for step offset ``s`` (in control
+        steps) ``future_dof_pos = dof_pos + (s * control_dt) * dof_vel``, and
+        report the same ``dof_vel`` for every step (a constant-velocity model
+        over the short horizon). This keeps position and velocity mutually
+        consistent -- the cheapest way to remove the ZOH distribution shift.
+
+        ``body_rot`` has no live angular-velocity signal (the anchor row is
+        pinned to identity by the retargeter), so it stays a zero-order hold.
+        """
         n = len(step_indices)
+        offsets = np.asarray(step_indices, dtype=np.float32).reshape(n, 1)
+        dt = self._control_dt
+        future_dof_pos = (
+            self._dof_pos[None, :] + (offsets * dt) * self._dof_vel[None, :]
+        ).astype(np.float32)
         return {
-            "dof_pos":  np.broadcast_to(self._dof_pos, (n, self._num_dofs)).copy(),
+            "dof_pos":  future_dof_pos,
             "dof_vel":  np.broadcast_to(self._dof_vel, (n, self._num_dofs)).copy(),
             "body_rot": np.broadcast_to(
                 self._body_rot, (n, self._num_bodies, 4)
