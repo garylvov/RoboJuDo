@@ -36,3 +36,4 @@ ctrl_registry.add("MotionKungfuBotCtrl", ".motion_kungfubot_ctrl")
 ctrl_registry.add("MotionTwistCtrl", ".motion_twist_ctrl")
 ctrl_registry.add("TwistRedisCtrl", ".twist_redis_ctrl")
 ctrl_registry.add("TeleopCtrl", ".teleop_ctrl")  # imprint teleop integration
+ctrl_registry.add("ScriptedCtrl", ".scripted_ctrl")  # headless command scheduler (harness)
