@@ -12,6 +12,7 @@ from robojudo.pipeline.wbc_execution import WbcExecCfg
 from robojudo.tools.recorder import RecorderCfg
 
 from .env.h1_2_mujoco_env_cfg import H1_2MujocoEnvCfg
+from .env.h1_2_newton_env_cfg import H1_2NewtonEnvCfg
 from .env.h1_2_real_env_cfg import H1_2RealEnvCfg, H1_2UnitreeCfg
 from .policy.h1_2_lift_teacher_onnx_cfg import H1_2LiftTeacherOnnxCfg
 from .policy.h1_2_protomotions_tracker_cfg import H1_2ProtoMotionsTrackerPolicyCfg
@@ -195,5 +196,47 @@ class h1_2_mujoco_reach_deploy(RlPipelineCfg):
     recorder: RecorderCfg = RecorderCfg(
         enabled=True,
         output_dir="/tmp/robojudo_rec_reach_teacher",
+    )
+    run_fullspeed: bool = True
+
+
+@cfg_registry.register
+class h1_2_newton_deploy(RlPipelineCfg):
+    """Headless sim2sim of the lift-teacher ONNX deploy flow on the NEWTON backend.
+
+    Same lift-teacher ONNX policy, WBC state machine, recorder, and scripted deploy
+    schedule as ``h1_2_mujoco_onnx_deploy`` -- the ONLY change is the physics backend
+    (``H1_2NewtonEnvCfg`` -> Newton's ``SolverMuJoCo`` instead of MuJoCo). This is the
+    whole point of the Newton backend: one RoboJuDo deploy harness, swap simulators,
+    so a PhysX-trained policy can be evaluated sim2sim in Newton.
+
+    The Newton scene is the composed **H1_2 + Psyonic Ability-hands** MJCF (finger
+    DOFs physically present at the wrist_yaw links; see H1_2NewtonEnvCfg.newton_xml).
+    Same obs/action gaps as the MuJoCo lift-teacher config apply (see
+    H1_2LiftTeacherOnnxPolicy docstring); the finger action head is not yet wired to
+    the finger actuators (deploy-remainder).
+
+        CUDA_VISIBLE_DEVICES=3 python scripts/run_pipeline.py -c h1_2_newton_deploy --max-steps 200
+    """
+
+    robot: str = "h1_2"
+    env: H1_2NewtonEnvCfg = H1_2NewtonEnvCfg(
+        headless=True,
+        visualize_extras=False,
+        born_place_align=False,
+        random_heading=False,
+    )
+    ctrl: list[ScriptedCtrlCfg] = [
+        ScriptedCtrlCfg(schedule=_LIFT_TEACHER_DEPLOY_SCHEDULE),
+    ]
+    policy: H1_2LiftTeacherOnnxCfg = H1_2LiftTeacherOnnxCfg()
+    wbc: WbcExecCfg = WbcExecCfg(
+        startup_ready_pose=True,
+        ramp_seconds=0.1,
+        burst_steps=5,
+    )
+    recorder: RecorderCfg = RecorderCfg(
+        enabled=True,
+        output_dir="/tmp/robojudo_rec_newton_lift_teacher",
     )
     run_fullspeed: bool = True

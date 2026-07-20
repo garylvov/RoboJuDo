@@ -71,6 +71,61 @@ class MujocoEnvCfg(EnvCfg):
     under that default (e.g. h1_2 BUILT_IN_PD checkpoints)."""
 
 
+class NewtonEnvCfg(EnvCfg):
+    """NVIDIA Newton (Warp physics) sim2sim backend config.
+
+    Mirrors :class:`MujocoEnvCfg` so the SAME RoboJuDo deploy harness can drive a
+    PhysX-trained policy through Newton instead of MuJoCo (swap the simulator,
+    keep the state machine / recorder / policy). Uses Newton's ``SolverMuJoCo``
+    (MuJoCo-Warp backend) for robust humanoid contact + articulated dynamics, and
+    Newton's *implicit* PD (per-DOF ``joint_target_ke``/``joint_target_kd`` with
+    ``JointTargetMode.POSITION``, from ``dof.stiffness``/``damping``) -- the direct
+    Newton analogue of ``MujocoEnvCfg.use_implicit_pd=True``.
+    """
+
+    env_type: str = "NewtonEnv"
+    is_sim: bool = True
+
+    # ====== ENV CONFIGURATION ======
+    sim_duration: float = 60.0
+    sim_dt: float = 0.001
+    sim_decimation: int = 20
+
+    visualize_extras: bool = False  # Newton backend is always headless here
+
+    headless: bool = True
+    """Newton deploy is ALWAYS headless (no viewer): physics + state serving are
+    identical to a windowed run, matching the real-robot code path."""
+
+    device: str = "cuda:0"
+    """Warp device for the Newton sim. ``cuda:0`` = first *visible* CUDA device
+    (set ``CUDA_VISIBLE_DEVICES`` to pin a physical GPU, e.g. ``=3`` -> GPU3).
+    ``cpu`` works too (Newton CPU-steps a single env fine, just slower)."""
+
+    newton_xml: str | None = None
+    """MJCF the Newton sim itself loads. Newton's strict ElementTree MJCF parser
+    rejects RoboJuDo's own ``assets/robots/h1_2`` copy (verbose ``--`` XML
+    comments + an added ``<worldbody>`` floor/skybox that MuJoCo's lenient parser
+    tolerates but ElementTree does not), so point this at the *robot-only*
+    ProtoMotions source MJCF instead and let :class:`NewtonEnv` add its own ground
+    plane. ``cfg.xml`` (the RoboJuDo copy) is still used for FK (MujocoKinematics
+    parses it with MuJoCo). ``None`` -> falls back to ``cfg.xml``."""
+
+    random_heading: bool = False
+    """Randomize the robot's yaw heading on each spawn/reborn."""
+
+    use_implicit_pd: bool = True
+    """Implicit PD via Newton joint targets (default, matches the H1_2
+    BUILT_IN_PD checkpoints). If False, compute torque explicitly in Python each
+    substep and write it to ``control.joint_f`` (Newton's explicit-PD analogue of
+    ``MujocoEnv``'s explicit torque path)."""
+
+    solver_iterations: int = 50
+    solver_ls_iterations: int = 20
+    solver_nconmax: int = 80
+    solver_njmax: int = 200
+
+
 class RobotEnvCfg(EnvCfg):
     env_type: str = "DummyEnv"
     is_sim: bool = False
