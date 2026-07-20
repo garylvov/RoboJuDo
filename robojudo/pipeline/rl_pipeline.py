@@ -122,6 +122,21 @@ class RlPipeline(Pipeline):
         self.reset()
         self.self_check()
         self.policy.reset()  # reset frame counter after dry-run steps
+        # self_check() runs `self.step(dry_run=True)` 10x. Each dry-run step
+        # still calls ctrl_manager.get_ctrl_data() -> advances ScriptedCtrl._t,
+        # but dry_run=True SKIPS exec.handle_commands() (see step()), so any WBC
+        # command scheduled within the first `self_check` steps -- notably the
+        # deploy schedules' `[POLICY_RUN_CONTINUOUS]` at step 3 -- is consumed
+        # WITHOUT being executed, and never fires again in the real run loop
+        # (which then starts at _t=10). The policy therefore stays FROZEN holding
+        # the ready pose; a masked-mimic WBC humanoid has no static balance at a
+        # fixed straight-legged pose, so it slides and collapses in ~1.5-2 s.
+        # Reset the ctrl counter here (mirrors the policy.reset() above) so the
+        # scripted schedule starts from _t=0 for the actual run. This is THE fix
+        # for the 2026-07-20 H1_2 "sim2sim falls in ~2 s" blocker -- with the
+        # policy actually engaged continuously the robot stands (30 s verified).
+        # See docs/VISUAL_SIM2REAL_DEPLOY.md.
+        self.ctrl_manager.reset()
 
     def self_check(self):
         self.env.self_check()

@@ -92,6 +92,10 @@ logger = logging.getLogger("sim2sim_eval")
 # pull task proxies straight out of the observation the policy actually saw,
 # without recomputing (and risking drift from) the policy's own math.
 # ---------------------------------------------------------------------------
+# Floating-base height (m) below which the H1_2 is considered fallen (see the
+# per-episode "stood" verdict in run_episode). Nominal standing pelvis ~1.03 m.
+STANDING_MIN_BASE_Z = 0.6
+
 REACH_OBS_DIM = 73
 REACH_SLICES = {
     "wrist_pos_w": slice(37, 43),
@@ -162,6 +166,7 @@ def run_episode(pipeline, cfg, episode_idx: int, episode_steps: int, is_reach: b
     raw_action_norms = []
     dof_excursion = []
     wrist_excursion = []
+    base_z = []  # base_pos[2] every step -- the standing verdict (see below)
     goal_wrist_error_abs = []  # reach only
     object_pos_samples = []  # lift only, if available
 
@@ -172,6 +177,14 @@ def run_episode(pipeline, cfg, episode_idx: int, episode_steps: int, is_reach: b
     wall_start = time.time()
     for t in range(episode_steps):
         pipeline.step()
+
+        # Standing verdict: track the floating-base height every step. This is
+        # THE load-bearing sim2sim metric -- a masked-mimic WBC that "runs"
+        # (finite actions, plausible wrist error) can still have toppled the
+        # robot; without base_z the summary looks healthy for a robot lying on
+        # the floor. (Added 2026-07-20: prior evals reported no base-height and
+        # so could not distinguish a standing robot from a fallen one.)
+        base_z.append(float(np.asarray(pipeline.env.base_pos)[2]))
 
         raw_action = getattr(inner_policy, "_last_raw_action", None)
         if raw_action is not None:
@@ -235,6 +248,17 @@ def run_episode(pipeline, cfg, episode_idx: int, episode_steps: int, is_reach: b
         "raw_action_norm": _pstats(raw_action_norms),
         "dof_excursion_rad": _pstats(dof_excursion),
         "wrist_excursion_m": _pstats(wrist_excursion),
+        # Standing verdict. STANDING_MIN_BASE_Z=0.6 m sits well below the H1_2's
+        # ~1.03 m nominal pelvis height and well above a collapsed pose
+        # (~0.09 m), so `stood` cleanly separates "balanced upright for the whole
+        # episode" from "toppled at any point".
+        "base_z_m": {
+            "first": base_z[0] if base_z else None,
+            "final": base_z[-1] if base_z else None,
+            "min": float(np.min(base_z)) if base_z else None,
+            "mean": float(np.mean(base_z)) if base_z else None,
+        },
+        "stood": bool(np.min(base_z) > STANDING_MIN_BASE_Z) if base_z else None,
         "cycle_goal_fired": cycle_goal_fired,
         "object_pos_available": object_pos_available,
     }
@@ -353,6 +377,8 @@ def main():
 
         shutil.rmtree(tmp_frame_dir, ignore_errors=True)
 
+    stood_flags = [m.get("stood") for m in all_metrics]
+    all_stood = bool(stood_flags) and all(s is True for s in stood_flags)
     run_summary = {
         "config": args.config,
         "episodes": args.episodes,
@@ -360,9 +386,15 @@ def main():
         "episode_steps": episode_steps,
         "freq_hz": freq,
         "is_reach": is_reach,
+        "all_episodes_stood": all_stood,
+        "episodes_stood": f"{sum(1 for s in stood_flags if s is True)}/{len(stood_flags)}",
         "video_paths": video_paths,
         "per_episode": all_metrics,
     }
+    logger.info(
+        f"STANDING VERDICT: {run_summary['episodes_stood']} episodes stood "
+        f"(all_episodes_stood={all_stood})"
+    )
 
     metrics_path = out_dir / "metrics.json"
     with open(metrics_path, "w") as f:
@@ -397,8 +429,17 @@ def write_markdown_summary(run_summary: dict, out_path: Path):
             "",
         ]
 
+    lines += [
+        f"**STANDING VERDICT: {run_summary.get('episodes_stood', 'n/a')} episodes stood "
+        f"(all_episodes_stood={run_summary.get('all_episodes_stood')})** — "
+        f"`stood` := min base height > {STANDING_MIN_BASE_Z} m over the whole episode "
+        f"(nominal pelvis ~1.03 m; collapsed ~0.09 m).",
+        "",
+    ]
+
     header = [
-        "episode", "wall_hz", "raw_action_norm(mean/p95/max)",
+        "episode", "stood", "base_z_m(min/final)", "wall_hz",
+        "raw_action_norm(mean/p95/max)",
         "dof_excursion_rad(mean/p95/max)", "wrist_excursion_m(mean/p95/max)",
     ]
     if is_reach:
@@ -413,8 +454,17 @@ def write_markdown_summary(run_summary: dict, out_path: Path):
                 return "n/a"
             return f"{d['mean']:.4f}/{d['p95']:.4f}/{d['max']:.4f}" if d["mean"] is not None else "n/a"
 
+        bz = m.get("base_z_m") or {}
+        stood_s = "YES" if m.get("stood") else ("NO" if m.get("stood") is False else "n/a")
+        bz_s = (
+            f"{bz['min']:.3f}/{bz['final']:.3f}"
+            if bz.get("min") is not None and bz.get("final") is not None
+            else "n/a"
+        )
         row = [
             str(m["episode"]),
+            stood_s,
+            bz_s,
             f"{m['wall_clock_hz']:.1f}" if m["wall_clock_hz"] else "n/a",
             fmt(m["raw_action_norm"]),
             fmt(m["dof_excursion_rad"]),

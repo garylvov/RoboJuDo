@@ -199,6 +199,28 @@ class MujocoEnv(Environment):
         mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
     def reset(self):
+        # Reborn: reset the FULL simulator state (qpos/qvel/ctrl) back to the
+        # model's default standing pose so a multi-episode eval starts each
+        # episode from a clean stand instead of inheriting the previous
+        # episode's (possibly fallen/drifted) end state. Previously reset() only
+        # ran the optional born_place_align block and NEVER touched qpos/qvel, so
+        # every episode after the first began wherever the last one ended --
+        # which silently invalidated multi-episode sim2sim evals (the robot
+        # could "start" already collapsed) and masked falls. Found during the
+        # 2026-07-20 H1_2 sim2sim standing investigation (see
+        # docs/VISUAL_SIM2REAL_DEPLOY.md).
+        #
+        # The H1_2 MJCFs define no <key> keyframe, so reset to the model's
+        # compiled defaults (qpos0 -> pelvis at its <body pos> height, all hinge
+        # joints at 0) via mj_resetData, NOT mj_resetDataKeyframe (which requires
+        # a keyframe and would raise). This is byte-identical to the freshly
+        # constructed init state used at __init__.
+        mujoco.mj_resetData(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+        self.data.ctrl[:] = 0.0
+        self._apply_random_heading()
+        mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+        self.update()
+
         if self.born_place_align:  # TODO: merge
             self.born_place_align = False  # disable during reset
             self.update()
