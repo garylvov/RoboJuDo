@@ -33,6 +33,7 @@ class KeyboardCtrlCfg(CtrlCfg):
         "s": "[POLICY_STEP_ONCE]",  # single-step: 1 policy step then auto-freeze
         "b": "[POLICY_STEP_BURST]",  # burst: N policy steps then auto-freeze
         "n": "[POLICY_RUN_CONTINUOUS]",  # continuous run (alias of resume)
+        "z": "[CYCLE_GOAL]",  # cycle to the next goal preset (reach-teacher state machine)
     }
 
 
@@ -63,6 +64,7 @@ class JoystickCtrlCfg(CtrlCfg):
         "RB+Y": "[POLICY_STEP_BURST]",
         # both bumpers = continuous run
         "LB+RB+A": "[POLICY_RUN_CONTINUOUS]",
+        "LB+RB+B": "[CYCLE_GOAL]",  # cycle to the next goal preset (reach-teacher state machine)
     }
 
 
@@ -87,6 +89,7 @@ class UnitreeCtrlCfg(JoystickCtrlCfg):
         "R1+X": "[POLICY_STEP_ONCE]",
         "R1+Y": "[POLICY_STEP_BURST]",
         "L1+R1+A": "[POLICY_RUN_CONTINUOUS]",
+        "L1+R1+B": "[CYCLE_GOAL]",  # cycle to the next goal preset (reach-teacher state machine)
     }
 
 

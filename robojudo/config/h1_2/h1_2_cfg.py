@@ -15,6 +15,7 @@ from .env.h1_2_mujoco_env_cfg import H1_2MujocoEnvCfg
 from .env.h1_2_real_env_cfg import H1_2RealEnvCfg, H1_2UnitreeCfg
 from .policy.h1_2_lift_teacher_onnx_cfg import H1_2LiftTeacherOnnxCfg
 from .policy.h1_2_protomotions_tracker_cfg import H1_2ProtoMotionsTrackerPolicyCfg
+from .policy.h1_2_reach_teacher_onnx_cfg import H1_2ReachTeacherOnnxCfg
 
 
 @cfg_registry.register
@@ -129,5 +130,70 @@ class h1_2_mujoco_onnx_deploy(RlPipelineCfg):
     recorder: RecorderCfg = RecorderCfg(
         enabled=True,
         output_dir="/tmp/robojudo_rec_lift_teacher",
+    )
+    run_fullspeed: bool = True
+
+
+# Full deploy state-machine walk (startup-ready -> preview -> confirm -> step -> burst ->
+# freeze -> resume -> damping -> shutdown) exercised against the reach-teacher ONNX on the
+# MuJoCo backend, PLUS two [CYCLE_GOAL] cycles to exercise the goal-switching hook
+# (H1_2ReachTeacherOnnxPolicy._cycle_goal / ctrl_cfgs.py's "z" / "LB+RB+B" / "L1+R1+B"
+# bindings). Step indices are pipeline steps AFTER startup() (mirrors
+# _LIFT_TEACHER_DEPLOY_SCHEDULE above, stretched to a 300-step smoke run).
+_REACH_TEACHER_DEPLOY_SCHEDULE: dict[int, list[str]] = {
+    3: ["[POLICY_RUN_CONTINUOUS]"],  # engage policy (continuous)
+    40: ["[FREEZE_WBC]"],  # freeze at current pose
+    55: ["[POLICY_STEP_ONCE]"],  # single step then auto-freeze
+    70: ["[POLICY_STEP_BURST]"],  # burst N steps then auto-freeze
+    100: ["[POLICY_PREVIEW]"],  # compute+surface next action (not executed)
+    110: ["[POLICY_CONFIRM]"],  # execute the previewed action once
+    125: ["[RESUME_POLICY]"],  # resume continuous stepping
+    150: ["[CYCLE_GOAL]"],  # switch to goal_presets[1] mid-run
+    220: ["[CYCLE_GOAL]"],  # switch back to goal_presets[0] (wraps)
+    270: ["[DAMPING]"],  # enter damping (soft)
+    285: ["[SHUTDOWN]"],  # clean shutdown (flush recorder)
+}
+
+
+@cfg_registry.register
+class h1_2_mujoco_reach_deploy(RlPipelineCfg):
+    """Headless sim2sim of the reach-teacher ONNX deploy flow on the MuJoCo backend.
+
+    GAP (see H1_2ReachTeacherOnnxPolicy module docstring for the full table): the
+    trained 12-dim action ([left_wrist_xyz, right_wrist_xyz, torso_xyz, head_xyz]
+    WBC conditioning) is NOT run through the frozen masked-mimic WBC ONNX the teacher
+    was trained against; this config approximates dims[0:12] as a bounded delta on the
+    arm-joint default pose, same approximation h1_2_mujoco_onnx_deploy uses for the
+    lift teacher. This is an infra smoke-test / gap-analysis harness, not a faithful
+    sim2sim reproduction of the trained control law.
+
+    GOAL: H1_2ReachTeacherOnnxCfg.goal_presets is a configurable list of reachable
+    local-frame wrist-pair poses (default: box-center "resting reach", plus a closer/
+    lower second preset). [CYCLE_GOAL] advances through the list -- bound to "z"
+    (KeyboardCtrlCfg), "LB+RB+B" (JoystickCtrlCfg), "L1+R1+B" (UnitreeCtrlCfg); this
+    config's schedule fires it twice (steps 150, 220) to smoke-test the cycle.
+
+        python scripts/run_pipeline.py -c h1_2_mujoco_reach_deploy --max-steps 300
+    """
+
+    robot: str = "h1_2"
+    env: H1_2MujocoEnvCfg = H1_2MujocoEnvCfg(
+        headless=True,
+        visualize_extras=False,
+        born_place_align=False,
+        random_heading=False,
+    )
+    ctrl: list[ScriptedCtrlCfg] = [
+        ScriptedCtrlCfg(schedule=_REACH_TEACHER_DEPLOY_SCHEDULE),
+    ]
+    policy: H1_2ReachTeacherOnnxCfg = H1_2ReachTeacherOnnxCfg()
+    wbc: WbcExecCfg = WbcExecCfg(
+        startup_ready_pose=True,
+        ramp_seconds=0.1,
+        burst_steps=5,
+    )
+    recorder: RecorderCfg = RecorderCfg(
+        enabled=True,
+        output_dir="/tmp/robojudo_rec_reach_teacher",
     )
     run_fullspeed: bool = True
