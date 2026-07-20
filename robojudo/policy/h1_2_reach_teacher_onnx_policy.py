@@ -93,6 +93,13 @@ _LOCAL_HALF = np.array([_FORWARD_HALF, _LATERAL_HALF, _HEIGHT_HALF], dtype=np.fl
 # T_t = T_{t-1} + a_t * WRIST_DELTA_SCALE (matches action_term.WRIST_DELTA_SCALE).
 _WRIST_DELTA_SCALE = 0.02
 
+# Anti-windup bound on the integrator (matches action_term.WRIST_CMD_MAX_OFFSET, action_term.py:187,
+# applied at action_term.py:483-486): keeps self._cmd_local within this distance of goal_local so
+# the integrator can't diverge/random-walk arbitrarily far from the goal box, while still leaving
+# the overshoot channel (up to this bound) fully available -- same rationale as process_actions'
+# "no clip on the raw action" (see action_clip note on H1_2ReachTeacherOnnxPolicyCfg above).
+_WRIST_CMD_MAX_OFFSET = 0.8
+
 # Default goal preset: the box CENTER for both wrists -- the "resting reach" pose, guaranteed
 # reachable by construction (action==0 reproduces it exactly per bimanual_goal_normalized).
 _DEFAULT_GOAL_PRESETS = [
@@ -146,7 +153,11 @@ class H1_2ReachTeacherOnnxPolicyCfg(OnnxPolicyCfg):
     goal_input_name: str = "goal"
 
     action_scale: float = 0.25
-    action_clip: float | None = 3.0
+    # Training (WbcReachAction.process_actions -- action_term.py:432-453) does NOT clip the raw
+    # action; it only sanitizes non-finite values (torch.nan_to_num). Default None here to match;
+    # set explicitly to opt into a clip (get_action() still sanitizes NaN/Inf unconditionally
+    # either way).
+    action_clip: float | None = None
     action_beta: float = 1.0
 
     # ==== goal handling (see module docstring) ====
@@ -270,11 +281,22 @@ class H1_2ReachTeacherOnnxPolicy(OnnxPolicy):
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         """Override: teacher action (12-dim) is NOT a direct 27-DOF PD target (see gap note)."""
         raw = self._onnx_forward(obs)
-        raw = np.clip(raw, -self.cfg_policy.action_clip, self.cfg_policy.action_clip)
+        # Mirror action_term.py:450 (`torch.nan_to_num(actions, nan=0.0, posinf=0.0, neginf=0.0)`)
+        # -- training only sanitizes non-finite values, it does NOT clip the raw action. Default
+        # None (see cfg above) so this is a no-op unless explicitly opted into.
+        raw = np.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0)
+        if self.cfg_policy.action_clip is not None:
+            raw = np.clip(raw, -self.cfg_policy.action_clip, self.cfg_policy.action_clip)
         self._last_raw_action = raw.copy()
 
         # Faithful obs-side integrator update (cheap bookkeeping, no WBC forward pass needed).
         self._cmd_local = self._cmd_local + raw[0:6] * _WRIST_DELTA_SCALE
+        # Anti-windup (matches action_term.py:483-486, WRIST_CMD_MAX_OFFSET=0.8): clamp the
+        # command to stay within _WRIST_CMD_MAX_OFFSET of the goal, so overshoot stays available
+        # but the integrator can't diverge or be random-walked into meaningless territory.
+        self._cmd_local = self._goal_local + np.clip(
+            self._cmd_local - self._goal_local, -_WRIST_CMD_MAX_OFFSET, _WRIST_CMD_MAX_OFFSET
+        )
 
         # Action-side approximation (documented gap): dims[0:12] treated as a bounded delta on
         # the first 12 of the 14 arm-joint default positions (wrist_roll/pitch/yaw for one side

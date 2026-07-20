@@ -178,7 +178,11 @@ class H1_2LiftTeacherOnnxPolicyCfg(OnnxPolicyCfg):
     rnn_num_layers: int = 1
 
     action_scale: float = 0.25
-    action_clip: float | None = 3.0
+    # Training (WbcReachAction.process_actions, box mode -- action_term.py:432-453) does NOT
+    # clip the raw action; it only sanitizes non-finite values (torch.nan_to_num). Default None
+    # here to match; set explicitly to opt into a clip (get_action() still sanitizes NaN/Inf
+    # unconditionally either way).
+    action_clip: float | None = None
     action_beta: float = 1.0
 
     # Stage-2 frozen masked-mimic WBC artifact (see module header for path resolution).
@@ -348,7 +352,14 @@ class H1_2LiftTeacherOnnxPolicy(OnnxPolicy):
         the mode the lift task trains with) bit-for-bit.
         """
         raw = self._onnx_forward(obs)
-        raw = np.clip(raw, -self.cfg_policy.action_clip, self.cfg_policy.action_clip)
+        # Mirror action_term.py:450 (`torch.nan_to_num(actions, nan=0.0, posinf=0.0, neginf=0.0)`)
+        # -- training only sanitizes non-finite values, it does NOT clip (box mode's raw[0:12] is
+        # an unbounded affine coordinate in the goal box; see process_actions' docstring on why a
+        # clamp there would silently cap overshoot). action_clip defaults to None (see cfg above)
+        # so this is a no-op unless explicitly opted into.
+        raw = np.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0)
+        if self.cfg_policy.action_clip is not None:
+            raw = np.clip(raw, -self.cfg_policy.action_clip, self.cfg_policy.action_clip)
         self._last_raw_action = raw.copy()
 
         env_data = self._env_data
