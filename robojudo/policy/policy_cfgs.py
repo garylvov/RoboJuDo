@@ -53,6 +53,49 @@ class PolicyCfg(Config):
         return self
 
 
+class OnnxPolicyCfg(PolicyCfg):
+    """Generic onnxruntime-backed policy config (LSTM h/c threading, EP fallback).
+
+    ``onnx_path`` is an absolute path (this class does not derive it from
+    ``ASSETS_DIR`` -- ONNX exports for sim2sim work live outside the vendored
+    assets tree, e.g. under a training worktree's ``onnx_exports/``).
+    """
+
+    policy_type: str = "OnnxPolicy"
+    robot: str = "h1_2"
+    disable_autoload: bool = True
+
+    onnx_path: str
+
+    @property
+    def policy_file(self) -> str:
+        return self.onnx_path
+
+    # onnxruntime execution providers, in priority order (first available wins;
+    # CPUExecutionProvider is always appended as the final fallback).
+    providers: list[str] = ["CPUExecutionProvider"]
+
+    obs_dim: int
+    action_dim: int
+
+    is_recurrent: bool = False
+    rnn_type: str = "lstm"
+    rnn_hidden_dim: int = 256
+    rnn_num_layers: int = 1
+
+    # ONNX graph I/O names (override to match a given export's signature).
+    obs_input_name: str = "obs"
+    action_output_name: str = "actions"
+    h_in_name: str = "h_in"
+    c_in_name: str = "c_in"
+    h_out_name: str = "h_out"
+    c_out_name: str = "c_out"
+
+    action_scale: float = 1.0
+    action_clip: float | None = None
+    action_beta: float = 1.0
+
+
 class UnitreePolicyCfg(PolicyCfg):
     class ObsScalesCfg(Config):
         dof_pos: float = 1.0
