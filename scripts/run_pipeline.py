@@ -50,6 +50,12 @@ def parse_args():
         default=None,
         help="JSON object passed to the deployment bootstrap",
     )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Stop the RlPipeline loop after this many steps (test/harness use)",
+    )
     args = parser.parse_args()
     return args
 
@@ -91,15 +97,31 @@ def main():
         run_to_completion()
         return
 
-    if not cfg.env.is_sim:
+    # Deploy-default startup flow: move to READY pose with NO policy running,
+    # then hold frozen.  Policy engagement is a deliberate, user-triggered step
+    # ([RESUME_POLICY] / stepped commands).  Opt-in via cfg.wbc.startup_ready_pose.
+    wbc_cfg = getattr(cfg, "wbc", None)
+    startup = getattr(pipeline, "startup", None)
+    if startup is not None and wbc_cfg is not None and getattr(wbc_cfg, "startup_ready_pose", False):
+        logger.warning("Deploy startup: ready-pose-first, policy engaged on command")
+        startup()
+    elif not cfg.env.is_sim:
         pipeline.prepare()
     elif getattr(pipeline, "_has_default_pose_mode", False):
         pipeline._set_default_pose_mode(True)
         logger.warning("Sim mode — holding default pose, press R to start motion")
 
+    step_count = 0
     while True:
         time_start = time.time()
         pipeline.step()
+        step_count += 1
+        if args.max_steps is not None and step_count >= args.max_steps:
+            logger.warning(f"Reached --max-steps={args.max_steps}, stopping")
+            teardown = getattr(pipeline, "_teardown_deploy_resources", None)
+            if teardown is not None:
+                teardown()
+            break
         time_end = time.time()
         time_diff = time_end - time_start
 

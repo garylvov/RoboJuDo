@@ -5,8 +5,11 @@ from pydantic import Field, model_validator
 from robojudo.config import Config
 from robojudo.controller import CtrlCfg
 from robojudo.environment import EnvCfg
+from robojudo.environment.psyonic_hand import PsyonicHandCfg
+from robojudo.pipeline.wbc_execution import WbcExecCfg
 from robojudo.policy import PolicyCfg
 from robojudo.tools.debug_log import DebugCfg
+from robojudo.tools.recorder import RecorderCfg
 
 
 class PipelineCfg(Config):
@@ -50,6 +53,14 @@ class RlPipelineCfg(PipelineCfg):
     env: EnvCfg | Any
     ctrl: list[CtrlCfg | Any] = []
     policy: PolicyCfg | Any
+
+    # ===== Deploy control-flow additions =====
+    wbc: WbcExecCfg = WbcExecCfg()
+    """WBC execution state machine (freeze/resume/damping/preview/stepped)."""
+    recorder: RecorderCfg = RecorderCfg()
+    """Per-component rate/latency recorder for deploy post-mortem debugging."""
+    psyonic: PsyonicHandCfg = PsyonicHandCfg()
+    """Optional Psyonic Ability Hand interface (left+right; real or mock)."""
 
 
 class RlMultiPolicyPipelineCfg(PipelineCfg):

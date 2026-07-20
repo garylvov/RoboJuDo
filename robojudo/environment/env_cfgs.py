@@ -25,6 +25,13 @@ class EnvCfg(Config):
     born_place_align: bool = True
     """Whether to align the born place to zero position and heading"""
 
+    ready_pose: list[float] | None = None
+    """Full-DoF 'ready' pose the robot ramps to at startup and on [HANDS_READY].
+
+    Length must equal ``dof.num_dofs``.  If ``None`` the env's ``dof.default_pos``
+    is used.  This is the deploy-critical hands-up ready position; the pipeline
+    smoothly interpolates to it (see :mod:`robojudo.pipeline.wbc_execution`)."""
+
 
 class MujocoEnvCfg(EnvCfg):
     env_type: str = "MujocoEnv"

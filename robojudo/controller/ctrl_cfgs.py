@@ -23,6 +23,16 @@ class KeyboardCtrlCfg(CtrlCfg):
         "|": "[MOTION_RESET]",  # note: with shift
         "{": "[MOTION_LOAD_PREV]",  # note: with shift
         "}": "[MOTION_LOAD_NEXT]",  # note: with shift
+        # ==== deploy WBC execution state machine (see wbc_execution.py) ====
+        "f": "[FREEZE_WBC]",  # freeze WBC at current pose
+        "g": "[RESUME_POLICY]",  # resume continuous policy stepping (resync first)
+        "d": "[DAMPING]",  # enter damping (soft) mode
+        "h": "[HANDS_READY]",  # ramp to ready pose (hands up)
+        "p": "[POLICY_PREVIEW]",  # compute+surface next action, do NOT execute
+        "c": "[POLICY_CONFIRM]",  # execute the previewed action once, then freeze
+        "s": "[POLICY_STEP_ONCE]",  # single-step: 1 policy step then auto-freeze
+        "b": "[POLICY_STEP_BURST]",  # burst: N policy steps then auto-freeze
+        "n": "[POLICY_RUN_CONTINUOUS]",  # continuous run (alias of resume)
     }
 
 
@@ -40,7 +50,19 @@ class JoystickCtrlCfg(CtrlCfg):
         "Y": "[MOTION_RESET]",
         # "LB": "[MOTION_LOAD_PREV]",
         # "RB": "[MOTION_LOAD_NEXT]",
-        # Note: combo keys supported: "LB+RB+A": "[TEST]",
+        # ==== deploy WBC execution state machine (LB/RB modifier combos) ====
+        # LB + face button = mode control
+        "LB+A": "[FREEZE_WBC]",
+        "LB+B": "[RESUME_POLICY]",
+        "LB+X": "[DAMPING]",
+        "LB+Y": "[HANDS_READY]",
+        # RB + face button = preview / stepped execution
+        "RB+A": "[POLICY_PREVIEW]",
+        "RB+B": "[POLICY_CONFIRM]",
+        "RB+X": "[POLICY_STEP_ONCE]",
+        "RB+Y": "[POLICY_STEP_BURST]",
+        # both bumpers = continuous run
+        "LB+RB+A": "[POLICY_RUN_CONTINUOUS]",
     }
 
 
@@ -55,7 +77,16 @@ class UnitreeCtrlCfg(JoystickCtrlCfg):
         "X": "[MOTION_FADE_IN]",
         "B": "[MOTION_FADE_OUT]",
         "Y": "[MOTION_RESET]",
-        # Note: combo keys supported: "L1+R1+A": "[TEST]",
+        # ==== deploy WBC execution state machine (L1/R1 modifier combos) ====
+        "L1+A": "[FREEZE_WBC]",
+        "L1+B": "[RESUME_POLICY]",
+        "L1+X": "[DAMPING]",
+        "L1+Y": "[HANDS_READY]",
+        "R1+A": "[POLICY_PREVIEW]",
+        "R1+B": "[POLICY_CONFIRM]",
+        "R1+X": "[POLICY_STEP_ONCE]",
+        "R1+Y": "[POLICY_STEP_BURST]",
+        "L1+R1+A": "[POLICY_RUN_CONTINUOUS]",
     }
 
 
@@ -161,6 +192,18 @@ class TwistRedisCtrlCfg(CtrlCfg):
     redis_key: str = "action_mimic_g1"  # key to get command data from redis
 
     buffer_size: int = 5  # size of the data buffer to store recent commands
+
+
+class ScriptedCtrlCfg(CtrlCfg):
+    """Config for :class:`ScriptedCtrl` — a headless command scheduler.
+
+    ``schedule`` maps a pipeline step index to the list of command tokens to
+    emit at that step, e.g. ``{5: ["[FREEZE_WBC]"], 20: ["[RESUME_POLICY]"]}``.
+    """
+
+    ctrl_type: str = "ScriptedCtrl"
+
+    schedule: dict[int, list[str]] = {}
 
 
 # ==== imprint teleop integration (additive) ====

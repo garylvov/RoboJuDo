@@ -8,10 +8,13 @@ import robojudo.environment
 import robojudo.policy
 from robojudo.controller import CtrlManager
 from robojudo.environment import Environment
+from robojudo.environment.psyonic_hand import make_psyonic_hands
 from robojudo.pipeline import Pipeline, pipeline_registry
 from robojudo.pipeline.pipeline_cfgs import RlPipelineCfg
+from robojudo.pipeline.wbc_execution import ExecMode, WbcExecCfg, WbcExecutionController
 from robojudo.policy import Policy, PolicyCfg
 from robojudo.tools.dof import DoFAdapter
+from robojudo.tools.recorder import RateRecorder, RecorderCfg
 from robojudo.tools.tool_cfgs import DoFConfig
 from robojudo.utils.progress import ProgressBar
 from robojudo.utils.util_func import get_gravity_orientation
@@ -85,6 +88,37 @@ class RlPipeline(Pipeline):
         self.freq = self.cfg.policy.freq
         self.dt = 1.0 / self.freq
 
+        # ===== Deploy control-flow: WBC state machine, recorder, hands =====
+        wbc_cfg: WbcExecCfg = getattr(self.cfg, "wbc", None) or WbcExecCfg()
+        self.exec = WbcExecutionController(
+            cfg=wbc_cfg,
+            freq=self.freq,
+            env=self.env,
+            resync_cb=self._resync_policy,
+        )
+        rec_cfg: RecorderCfg = getattr(self.cfg, "recorder", None) or RecorderCfg()
+        self.recorder = RateRecorder(rec_cfg, run_name=type(self.cfg).__name__)
+        self.hands = make_psyonic_hands(getattr(self.cfg, "psyonic", None) or None)
+        if self.hands is not None:
+            try:
+                self.hands.connect()
+                logger.info(f"[Pipeline] Psyonic hands connected: {self.hands.present_sides}")
+            except Exception as e:  # pragma: no cover - hardware path
+                logger.error(f"[Pipeline] Psyonic hand connect failed: {e}")
+                self.hands = None
+
+        # Ready pose (full DoF) for startup ramp + HANDS_READY.
+        ready = getattr(self.env.cfg_env, "ready_pose", None)
+        if ready is not None and len(ready) == self.env.num_dofs:
+            self._ready_pose = np.asarray(ready, dtype=np.float32)
+        else:
+            if ready is not None:
+                logger.warning(
+                    f"[Pipeline] env.ready_pose len {len(ready)} != num_dofs "
+                    f"{self.env.num_dofs}; falling back to default_pos"
+                )
+            self._ready_pose = np.asarray(self.env.dof_cfg.default_pos, dtype=np.float32)
+
         self.reset()
         self.self_check()
         self.policy.reset()  # reset frame counter after dry-run steps
@@ -97,6 +131,21 @@ class RlPipeline(Pipeline):
     def _inner_policy(self):
         """Return the unwrapped inner Policy (e.g. ProtoMotionsTrackerPolicy)."""
         return getattr(self.policy, "policy", self.policy)
+
+    def _resync_policy(self):
+        """Safe transition hook: re-sync policy observation/alignment before
+        unfreezing (called by the WBC controller on [RESUME_POLICY]).
+
+        This recomputes any runtime heading/spatial alignment so the policy
+        resumes from the robot's CURRENT pose rather than a stale reference,
+        avoiding a jerk when leaving a frozen/stepped state.
+        """
+        inner = self._inner_policy()
+        if hasattr(inner, "reset_alignment"):
+            inner.reset_alignment()
+        # Clear any lingering pause so the frame advances again.
+        if hasattr(inner, "_paused"):
+            inner._paused = False
 
     @property
     def _has_default_pose_mode(self) -> bool:
@@ -154,6 +203,7 @@ class RlPipeline(Pipeline):
                 case "[SHUTDOWN]":
                     logger.warning("Emergency shutdown!")
                     self.env.shutdown()
+                    self._teardown_deploy_resources()
                 case "[SIM_REBORN]":
                     if hasattr(self.env, "reborn"):
                         logger.warning("Simulation Env reborn!")
@@ -207,8 +257,9 @@ class RlPipeline(Pipeline):
             )
 
     def step(self, dry_run=False):
-        self.env.update()
-        env_data = self.env.get_data()
+        with self.recorder.measure("robot_state"):
+            self.env.update()
+            env_data = self.env.get_data()
 
         ctrl_data = self.ctrl_manager.get_ctrl_data(env_data)
 
@@ -216,8 +267,16 @@ class RlPipeline(Pipeline):
         if len(commands) > 0:
             logger.info(f"{'=' * 10} COMMANDS {'=' * 10}\n{commands}")
 
-        obs, extras = self.policy.get_observation(env_data, ctrl_data)
-        pd_target = self.policy.get_pd_target(obs)
+        # -- WBC execution commands take effect THIS step (freeze/resume/
+        #    damping/hands-ready/preview/confirm/single-step/burst/continuous) --
+        if not dry_run:
+            self.exec.handle_commands(commands, current_dof=self.env.dof_pos, ready_pose=self._ready_pose)
+            if "[HANDS_READY]" in commands and self.hands is not None:
+                self.hands.set_ready()
+
+        with self.recorder.measure("policy_inference"):
+            obs, extras = self.policy.get_observation(env_data, ctrl_data)
+            pd_target = self.policy.get_pd_target(obs)
 
         # -- Detect motion done --
         callbacks = extras.get("CALLBACK", [])
@@ -236,10 +295,22 @@ class RlPipeline(Pipeline):
             pd_target = (1 - alpha) * pd_target + alpha * self._init_dof_pos
             self._blend_out_step += 1
 
-        if not dry_run:
-            self.env.step(pd_target, extras.get("hand_pose", None))
+        # -- WBC state machine resolves what actually reaches the robot --
+        decision = self.exec.tick(pd_target, current_dof=self.env.dof_pos, timestep=self.timestep)
+        send_target = decision.pd_target
 
-        self.post_step_callback(env_data, ctrl_data, extras, pd_target)
+        # Gate the policy frame advance when not in continuous RUNNING mode:
+        # frozen/preview/damping hold the frame; stepped/confirmed advance once.
+        inner = self._inner_policy()
+        if self.exec.mode != ExecMode.RUNNING and hasattr(inner, "_paused"):
+            inner._paused = not decision.advance_policy
+
+        if not dry_run:
+            with self.recorder.measure("command_send"):
+                self.env.step(send_target, extras.get("hand_pose", None))
+
+        self.post_step_callback(env_data, ctrl_data, extras, send_target)
+        self.recorder.mark("env_step")
 
         # Handle pending blend-in (after MOTION_RESET / FADE_IN).
         if self._pending_blend_in:
@@ -288,6 +359,68 @@ class RlPipeline(Pipeline):
         # Switch to motion tracking — policy sees the jump.
         self._set_default_pose_mode(False)
         logger.warning("Blend-in done — motion starting")
+
+    def _teardown_deploy_resources(self):
+        """Flush recorder + close hand interface on shutdown (idempotent)."""
+        rec = getattr(self, "recorder", None)
+        if rec is not None:
+            try:
+                rec.close()
+            except Exception:
+                pass
+        hands = getattr(self, "hands", None)
+        if hands is not None:
+            try:
+                hands.close()
+            except Exception:
+                pass
+
+    def startup(self):
+        """Deploy-default startup: ramp the robot to the READY pose with NO
+        policy running, then HOLD frozen.
+
+        Policy engagement is a deliberate, separate, user-triggered step
+        ([RESUME_POLICY] / [POLICY_RUN_CONTINUOUS] / stepped commands).  This
+        replaces the "immediately blend the policy in" behaviour on the deploy
+        path so the operator confirms readiness before any policy action moves
+        the hardware.
+        """
+        ready = self._ready_pose
+        ramp_seconds = float(getattr(self.exec.cfg, "ramp_seconds", 2.0))
+        ramp_steps = max(1, int(ramp_seconds * self.freq))
+
+        logger.warning(
+            f"startup: ramp to READY pose ({ramp_steps} steps, {ramp_seconds:.1f}s) "
+            "— policy NOT running"
+        )
+        pbar = ProgressBar("Startup: ramp to ready", ramp_steps)
+
+        last_step_time = time.time()
+        for t in range(ramp_steps):
+            current_motor_angle = np.array(self.env.dof_pos)
+            alpha = min(t / max(ramp_steps - 1, 1), 1.0)
+            action = (1 - alpha) * current_motor_angle + alpha * ready
+            self.env.step(action)
+
+            time_diff = last_step_time + self.dt - time.time()
+            if time_diff > 0:
+                time.sleep(time_diff)
+            last_step_time = time.time()
+            pbar.update()
+        pbar.close()
+
+        # Command the Psyonic hands to their ready pose too, if present.
+        if self.hands is not None:
+            self.hands.set_ready()
+
+        # Latch the ready pose and hold FROZEN; wait for a deliberate engage.
+        self.exec.force_freeze(ready, reason="startup ready pose")
+        if hasattr(self._inner_policy(), "_paused"):
+            self._inner_policy()._paused = True
+        logger.warning(
+            "startup done — at READY pose, policy FROZEN. Trigger [RESUME_POLICY] "
+            "or a stepped command to engage the policy."
+        )
 
     def prepare(self, init_motor_angle=None, prepare_seconds=None):
         if init_motor_angle is not None:
