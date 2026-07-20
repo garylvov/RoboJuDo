@@ -11,7 +11,7 @@ from robojudo.pipeline.pipeline_cfgs import RlPipelineCfg
 from robojudo.pipeline.wbc_execution import WbcExecCfg
 from robojudo.tools.recorder import RecorderCfg
 
-from .env.h1_2_mujoco_env_cfg import H1_2MujocoEnvCfg
+from .env.h1_2_mujoco_env_cfg import H1_2MujocoEnvCfg, H1_2MujocoLiftSceneEnvCfg
 from .env.h1_2_newton_env_cfg import H1_2NewtonEnvCfg
 from .env.h1_2_real_env_cfg import H1_2RealEnvCfg, H1_2UnitreeCfg
 from .policy.h1_2_lift_teacher_onnx_cfg import H1_2LiftTeacherOnnxCfg
@@ -198,6 +198,30 @@ class h1_2_mujoco_reach_deploy(RlPipelineCfg):
         output_dir="/tmp/robojudo_rec_reach_teacher",
     )
     run_fullspeed: bool = True
+
+
+@cfg_registry.register
+class h1_2_mujoco_lift_scene_deploy(h1_2_mujoco_onnx_deploy):
+    """Same as ``h1_2_mujoco_onnx_deploy``, but the MuJoCo scene is
+    ``h1_2_lift_scene.xml`` (robot + table + free-joint box, matching the training scene) via
+    ``H1_2MujocoLiftSceneEnvCfg`` -- so ``object_position``/``object_rel_wrists``/
+    ``object_height`` (34/101 obs dims) are now REAL instead of zero-substituted. The remaining
+    gap (finger_joint_pos/vel -- no Ability-hand finger joints on this MuJoCo asset -- and the
+    action-side WBC approximation noted in ``h1_2_mujoco_onnx_deploy``'s docstring) is unchanged.
+
+        python scripts/run_pipeline.py -c h1_2_mujoco_lift_scene_deploy --max-steps 200
+    """
+
+    env: H1_2MujocoLiftSceneEnvCfg = H1_2MujocoLiftSceneEnvCfg(
+        headless=True,
+        visualize_extras=False,
+        born_place_align=False,
+        random_heading=False,
+    )
+    recorder: RecorderCfg = RecorderCfg(
+        enabled=True,
+        output_dir="/tmp/robojudo_rec_lift_teacher_scene",
+    )
 
 
 @cfg_registry.register

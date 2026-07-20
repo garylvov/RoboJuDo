@@ -41,6 +41,14 @@ class Environment(ABC):
         self._torso_ang_vel: np.ndarray | None = None
         self._fk_info: dict | None = None
 
+        # Optional scene object (e.g. the H1_2 lift task's box) -- only populated by backends
+        # whose loaded scene has a body named "object" (see MujocoEnv.__init__'s
+        # `_object_body_id` detection); stays None (and is simply absent from get_data()'s
+        # consumers via hasattr/None checks) for every other scene, so this is additive-only.
+        self._object_pos: np.ndarray | None = None
+        self._object_quat: np.ndarray | None = None
+        self._object_lin_vel: np.ndarray | None = None
+
         # born place alignment
         self.born_place_align = self.cfg_env.born_place_align
         self.base_align = TransformAlignment(yaw_only=True, xy_only=True)
@@ -158,6 +166,18 @@ class Environment(ABC):
     def fk_info(self):
         return self._fk_info.copy() if self._fk_info is not None else None
 
+    @property
+    def object_pos(self):
+        return self._object_pos.copy() if self._object_pos is not None else None
+
+    @property
+    def object_quat(self):
+        return self._object_quat.copy() if self._object_quat is not None else None
+
+    @property
+    def object_lin_vel(self):
+        return self._object_lin_vel.copy() if self._object_lin_vel is not None else None
+
     def get_data(self):
         env_data = {
             "dof_pos": self.dof_pos,
@@ -172,5 +192,8 @@ class Environment(ABC):
             "torso_quat": self.torso_quat,
             "torso_ang_vel": self.torso_ang_vel,
             "fk_info": self.fk_info,
+            "object_pos": self.object_pos,
+            "object_quat": self.object_quat,
+            "object_lin_vel": self.object_lin_vel,
         }
         return Box(env_data)

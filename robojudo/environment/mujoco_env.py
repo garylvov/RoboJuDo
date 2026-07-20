@@ -31,6 +31,33 @@ class MujocoEnv(Environment):
 
         self.model = mujoco.MjModel.from_xml_path(cfg_env.xml)  # pyright: ignore[reportAttributeAccessIssue]
         self.model.opt.timestep = self.sim_dt
+
+        # Robot free-base joint address (2026-07-20, lift-scene sim2sim task): scene XMLs may
+        # now prepend extra free-jointed bodies before the robot `<include>` (e.g. the H1_2 lift
+        # task's box -- see assets/robots/h1_2/h1_2_lift_scene.xml's "ORDERING CONTRACT" comment).
+        # That keeps `dof_pos`/`dof_vel`'s trailing `[-self.num_dofs:]` slice below correct (the
+        # robot's own hinge joints stay the LAST `num_dofs` entries), but it also means the
+        # robot's floating-base free joint is no longer guaranteed to be qpos[0:7]/qvel[0:6] --
+        # so locate it explicitly as the LAST free joint in the model (the ordering contract's
+        # guarantee) instead of hardcoding index 0. Single-robot XMLs with no extra free bodies
+        # (G1, the original H1_2 asset, etc.) have exactly one free joint at index 0, so this is
+        # byte-identical to the old hardcoded behavior for every existing config.
+        free_jids = [
+            i
+            for i in range(self.model.njnt)
+            if self.model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE  # pyright: ignore[reportAttributeAccessIssue]
+        ]
+        robot_free_jid = free_jids[-1] if free_jids else None
+        self._base_qpos_addr = int(self.model.jnt_qposadr[robot_free_jid]) if robot_free_jid is not None else 0
+        self._base_qvel_addr = int(self.model.jnt_dofadr[robot_free_jid]) if robot_free_jid is not None else 0
+
+        # Optional scene object (e.g. the lift task's box) -- exposed via base_env.py's
+        # object_pos/object_quat/object_lin_vel properties (None when the scene has no body
+        # named "object", e.g. every non-lift MuJoCo scene) for obs-side consumers.
+        object_body_id = mujoco.mj_name2id(  # pyright: ignore[reportAttributeAccessIssue]
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "object"  # pyright: ignore[reportAttributeAccessIssue]
+        )
+        self._object_body_id = object_body_id if object_body_id >= 0 else None
         self.data = mujoco.MjData(self.model)  # pyright: ignore[reportAttributeAccessIssue]
 
         # Zero passive MJCF joint stiffness/damping (mjModel.jnt_stiffness /
@@ -203,10 +230,11 @@ class MujocoEnv(Environment):
         if simple:
             return
 
-        quat = self.data.qpos.astype(np.float32)[3:7][[1, 2, 3, 0]]
-        ang_vel = self.data.qvel.astype(np.float32)[3:6]
-        base_pos = self.data.qpos.astype(np.float32)[:3]
-        lin_vel = self.data.qvel.astype(np.float32)[0:3]
+        a, va = self._base_qpos_addr, self._base_qvel_addr
+        quat = self.data.qpos.astype(np.float32)[a + 3 : a + 7][[1, 2, 3, 0]]
+        ang_vel = self.data.qvel.astype(np.float32)[va + 3 : va + 6]
+        base_pos = self.data.qpos.astype(np.float32)[a : a + 3]
+        lin_vel = self.data.qvel.astype(np.float32)[va : va + 3]
 
         if self.born_place_align:
             quat, base_pos = self.base_align.align_transform(quat, base_pos)
@@ -220,6 +248,16 @@ class MujocoEnv(Environment):
 
         self._base_pos = base_pos.copy()
         self._base_lin_vel = lin_vel.copy()
+
+        if self._object_body_id is not None:
+            # World-frame pose/velocity of the scene's "object" body (the lift task's box, when
+            # the loaded scene xml has one -- see H1_2LiftTeacherOnnxPolicy.get_observation for
+            # the yaw-local re-projection consumers actually need). data.xpos/xquat/cvel are
+            # forward-kinematics outputs already valid after mj_step (updated by mj_step's own
+            # mj_forward pass), so no extra mj_forward call is needed here.
+            self._object_pos = self.data.xpos[self._object_body_id].astype(np.float32).copy()
+            self._object_quat = self.data.xquat[self._object_body_id].astype(np.float32)[[1, 2, 3, 0]].copy()
+            self._object_lin_vel = self.data.cvel[self._object_body_id][3:6].astype(np.float32).copy()
 
         if self.update_with_fk:
             fk_info = self.fk()

@@ -18,9 +18,10 @@ Term-by-term provenance (see class docstring in ``lift_env_cfg.py``'s
 | arm_joint_pos    | 14  | env_data.dof_pos[arm subset] - default_pos (14 arm joints)  |
 | arm_joint_vel    | 14  | env_data.dof_vel[arm subset]                                |
 | wrist_pos_w      |  6  | FK left/right *_wrist_yaw_link pos, root-yaw-local frame    |
-| object_position  |  3  | ZERO -- no cube/box body exists in h1_2_box_feet.xml        |
-| object_rel_wrists|  6  | ZERO -- same (no object to compute a wrist-relative vector) |
-| object_height    |  1  | ZERO -- same                                                |
+| object_position  |  3  | REAL when scene has an "object" body (h1_2_lift_scene.xml), |
+|                  |     | else ZERO (bare h1_2_box_feet.xml has no cube/box body)     |
+| object_rel_wrists|  6  | REAL alongside object_position (needs both); else ZERO      |
+| object_height    |  1  | REAL alongside object_position (raw world z); else ZERO     |
 | finger_joint_pos | 12  | ZERO -- no Ability-hand finger joints in h1_2_box_feet.xml  |
 | finger_joint_vel | 12  | ZERO -- same                                                |
 | last_action      | 24  | self.last_action (policy's own previous 24-dim output)      |
@@ -276,6 +277,7 @@ class H1_2LiftTeacherOnnxPolicy(OnnxPolicy):
 
         fk_info = getattr(env_data, "fk_info", None) or {}
         wrist_pos_w = np.zeros(6, dtype=np.float32)
+        left_local = right_local = None
         if "left_wrist_yaw_link" in fk_info and "right_wrist_yaw_link" in fk_info:
             left_w = np.asarray(fk_info["left_wrist_yaw_link"]["pos"], dtype=np.float32)
             right_w = np.asarray(fk_info["right_wrist_yaw_link"]["pos"], dtype=np.float32)
@@ -285,10 +287,28 @@ class H1_2LiftTeacherOnnxPolicy(OnnxPolicy):
         else:
             logger.warning("[H1_2LiftTeacherOnnxPolicy] fk_info missing wrist bodies; wrist_pos_w=0")
 
-        # ZERO-substituted terms (documented gap -- see module docstring table).
+        # object_position/object_rel_wrists/object_height: REAL when the loaded MuJoCo scene has
+        # a body named "object" (e.g. assets/robots/h1_2/h1_2_lift_scene.xml -- see
+        # MujocoEnv._object_body_id / base_env.py's object_pos property), ZERO-substituted
+        # otherwise (the original documented gap, still true for the bare h1_2_box_feet.xml
+        # scene, which has no box body). Frame/semantics mirror
+        # imprint_isaaclab_ext...h1_2_lift.mdp.observations.object_position_root /
+        # object_rel_wrists / object_height exactly: object_position and the wrist terms inside
+        # object_rel_wrists are in the SAME root-yaw-local frame as wrist_pos_w above (object_pos
+        # world -> yaw-local via the same `_yaw_only_local` helper); object_height is the RAW
+        # world z (not yaw-local, not relative).
         object_position = np.zeros(3, dtype=np.float32)
         object_rel_wrists = np.zeros(6, dtype=np.float32)
         object_height = np.zeros(1, dtype=np.float32)
+        object_pos_w = getattr(env_data, "object_pos", None)
+        if object_pos_w is not None:
+            object_pos_w = np.asarray(object_pos_w, dtype=np.float32)
+            object_position = _yaw_only_local(object_pos_w, base_pos, base_quat).astype(np.float32)
+            object_height = object_pos_w[2:3].astype(np.float32)
+            if left_local is not None and right_local is not None:
+                object_rel_wrists = np.concatenate(
+                    [object_position - left_local, object_position - right_local]
+                ).astype(np.float32)
         finger_joint_pos = np.zeros(12, dtype=np.float32)
         finger_joint_vel = np.zeros(12, dtype=np.float32)
 

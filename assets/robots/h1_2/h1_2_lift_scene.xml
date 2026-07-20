@@ -1,0 +1,44 @@
+<mujoco model="h1_2_lift_scene">
+  <!-- H1_2 lift-teacher sim2sim SCENE: adds a static table + a free-joint box on top of the
+       robot-only h1_2_box_feet.xml, so the 34/101 lift-teacher obs dims that were previously
+       zero-substituted (object_position, object_rel_wrists, object_height, finger_joint_pos/vel
+       -- see H1_2LiftTeacherOnnxPolicy's module docstring) can be read from a real body instead.
+
+       Geometry matches the TRAINING scene exactly (imprint_isaaclab_ext/imprint_isaaclab_ext/
+       tasks/manager_based/manipulation/h1_2_lift/lift_env_cfg.py, LiftSceneCfg + the gen24 DR
+       defaults -- see that file's TABLE_TOP_Z / TABLE_FORWARD_X / CUBE_HALF and the
+       RigidObjectCfg blocks for `table`/`object`):
+         - table: CuboidCfg size=(0.5, 0.9, TABLE_TOP_Z=0.75), centered at
+           (TABLE_FORWARD_X=0.45, 0, TABLE_TOP_Z/2=0.375) -- so the TOP face sits at z=0.75.
+           Kinematic (disable_gravity, no joint here -- static in this deploy scene; training
+           DR's the top height/planar scale but the default/gen24 values are exactly this).
+         - object (cube): CuboidCfg size=(2*CUBE_HALF, 2*CUBE_HALF, 2*CUBE_HALF) = 0.08 m per
+           side, spawned at (0.45, 0, CUBE_SPAWN_Z=0.79) i.e. resting on the table top,
+           mass=0.5 kg (training's base mass before the mass-scale DR), physics_material
+           static/dynamic friction = 1.0/1.0. Free-jointed here so PhysX-like contact settles
+           it naturally under MuJoCo's own contact solver.
+
+       ORDERING CONTRACT (do not reorder): the `object` free joint is declared BEFORE
+       `<include file="h1_2_box_feet.xml"/>`, so in the compiled model's qpos/qvel layout the
+       robot's own floating-base joint + its 27 actuated hinge joints remain the LAST 34/27
+       entries. `robojudo/environment/mujoco_env.py`'s `MujocoEnv` was patched to locate the
+       robot's free joint dynamically (the *last* free joint in the model, which is this
+       ordering's guarantee) rather than assuming index 0 -- see the comment there. Adding any
+       further free-jointed scene body must keep it declared before the robot `<include>` for
+       the same reason. -->
+  <worldbody>
+    <body name="table" pos="0.45 0 0.375">
+      <geom name="table_collision" type="box" size="0.25 0.45 0.375"
+            rgba="0.4 0.3 0.2 1" friction="1.0 0.005 0.0001" />
+    </body>
+
+    <body name="object" pos="0.45 0 0.79">
+      <freejoint name="object_freejoint" />
+      <inertial pos="0 0 0" mass="0.5" diaginertia="0.000533 0.000533 0.000533" />
+      <geom name="object_collision" type="box" size="0.04 0.04 0.04" condim="4"
+            rgba="0.1 0.5 0.9 1" friction="1.0 0.005 0.0001" />
+    </body>
+  </worldbody>
+
+  <include file="h1_2_box_feet.xml" />
+</mujoco>
