@@ -160,13 +160,15 @@ _REACH_TEACHER_DEPLOY_SCHEDULE: dict[int, list[str]] = {
 class h1_2_mujoco_reach_deploy(RlPipelineCfg):
     """Headless sim2sim of the reach-teacher ONNX deploy flow on the MuJoCo backend.
 
-    GAP (see H1_2ReachTeacherOnnxPolicy module docstring for the full table): the
-    trained 12-dim action ([left_wrist_xyz, right_wrist_xyz, torso_xyz, head_xyz]
-    WBC conditioning) is NOT run through the frozen masked-mimic WBC ONNX the teacher
-    was trained against; this config approximates dims[0:12] as a bounded delta on the
-    arm-joint default pose, same approximation h1_2_mujoco_onnx_deploy uses for the
-    lift teacher. This is an infra smoke-test / gap-analysis harness, not a faithful
-    sim2sim reproduction of the trained control law.
+    Action side is now faithful, two-stage (see H1_2ReachTeacherOnnxPolicy module
+    docstring for the full mechanism): the trained 12-dim action
+    ([left_wrist_xyz, right_wrist_xyz, torso_xyz, head_xyz] WBC conditioning) runs
+    through the SAME frozen masked-mimic WBC ONNX the teacher was trained against,
+    reproducing action_term.py's INTEGRAL command mode (use_command=True,
+    integral=True) bit-for-bit -- mirrors the lift teacher's h1_2_mujoco_onnx_deploy
+    wiring (commit 65adb57), adapted for the reach task's integral wrist-command form
+    instead of the lift task's box-mode form. This replaces the previous "arm-joint-
+    default delta" bypass approximation.
 
     GOAL: H1_2ReachTeacherOnnxCfg.goal_presets is a configurable list of reachable
     local-frame wrist-pair poses (default: box-center "resting reach", plus a closer/

@@ -45,14 +45,14 @@ Metrics per episode:
         unavailable; recorded as such rather than faked).
 
 CAVEAT (see module docstrings in robojudo/policy/h1_2_*_onnx_policy.py):
-  - h1_2_mujoco_onnx_deploy (lift teacher): action side now runs through the
+  - h1_2_mujoco_onnx_deploy (lift teacher): action side runs through the
     frozen masked-mimic WBC ONNX -- a faithful two-stage reproduction of the
     trained control law (arms/wrists), legs unmasked.
-  - h1_2_mujoco_reach_deploy (reach teacher): action side is STILL the
-    bounded-delta-on-arm-default-pose approximation (WBC ONNX not wired for
-    this policy) -- an infra smoke-test of the deploy harness, not a faithful
-    sim2sim reproduction of the trained reach control law. Every reach metric
-    in this run's output inherits that caveat.
+  - h1_2_mujoco_reach_deploy (reach teacher): action side ALSO now runs
+    through the same frozen masked-mimic WBC ONNX (integral wrist-command
+    mode -- see H1_2ReachTeacherOnnxPolicy module docstring) -- a faithful
+    two-stage reproduction of the trained reach control law, legs unmasked.
+    The previous "arm-joint-default delta" bypass approximation is gone.
 
 Usage::
 
@@ -385,10 +385,9 @@ def write_markdown_summary(run_summary: dict, out_path: Path):
     ]
     if is_reach:
         lines += [
-            "**CAVEAT**: `h1_2_mujoco_reach_deploy`'s action side is still the bounded-delta-on-"
-            "arm-default-pose approximation (the frozen masked-mimic WBC ONNX is NOT wired for the "
-            "reach teacher) — this is an infra smoke-test of the deploy harness, not a faithful "
-            "sim2sim reproduction of the trained reach control law. All metrics below inherit that gap.",
+            "Action side runs through the frozen masked-mimic WBC ONNX (integral wrist-command "
+            "mode; faithful two-stage control law for arms/wrists, legs unmasked — see "
+            "H1_2ReachTeacherOnnxPolicy module docstring). Finger actuators absent on this MuJoCo asset.",
             "",
         ]
     else:
