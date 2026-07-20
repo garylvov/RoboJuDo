@@ -49,6 +49,16 @@ class Environment(ABC):
         self._object_quat: np.ndarray | None = None
         self._object_lin_vel: np.ndarray | None = None
 
+        # Optional Ability-hand finger state (12-dim: 6 DRIVEN dof/hand -- see
+        # robojudo/environment/utils/ability_hand_coupling.py -- left-then-right,
+        # per-hand order [index, middle, ring, pinky, thumb_rotator, thumb_flexor]).
+        # Only populated by backends whose loaded scene has finger joints (e.g.
+        # NewtonEnv on the composed h1_2_box_feet_ability_hands.xml); stays None
+        # (and finger obs terms fall back to zero-substitution) otherwise -- same
+        # additive-only pattern as `_object_pos` above.
+        self._finger_joint_pos: np.ndarray | None = None
+        self._finger_joint_vel: np.ndarray | None = None
+
         # born place alignment
         self.born_place_align = self.cfg_env.born_place_align
         self.base_align = TransformAlignment(yaw_only=True, xy_only=True)
@@ -178,6 +188,14 @@ class Environment(ABC):
     def object_lin_vel(self):
         return self._object_lin_vel.copy() if self._object_lin_vel is not None else None
 
+    @property
+    def finger_joint_pos(self):
+        return self._finger_joint_pos.copy() if self._finger_joint_pos is not None else None
+
+    @property
+    def finger_joint_vel(self):
+        return self._finger_joint_vel.copy() if self._finger_joint_vel is not None else None
+
     def get_data(self):
         env_data = {
             "dof_pos": self.dof_pos,
@@ -195,5 +213,7 @@ class Environment(ABC):
             "object_pos": self.object_pos,
             "object_quat": self.object_quat,
             "object_lin_vel": self.object_lin_vel,
+            "finger_joint_pos": self.finger_joint_pos,
+            "finger_joint_vel": self.finger_joint_vel,
         }
         return Box(env_data)

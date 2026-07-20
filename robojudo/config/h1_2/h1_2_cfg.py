@@ -18,6 +18,20 @@ from .policy.h1_2_lift_teacher_onnx_cfg import H1_2LiftTeacherOnnxCfg
 from .policy.h1_2_protomotions_tracker_cfg import H1_2ProtoMotionsTrackerPolicyCfg
 from .policy.h1_2_reach_teacher_onnx_cfg import H1_2ReachTeacherOnnxCfg
 
+_REACH_TEACHER_NEWTON_DEPLOY_SCHEDULE: dict[int, list[str]] = {
+    3: ["[POLICY_RUN_CONTINUOUS]"],  # engage policy (continuous)
+    40: ["[FREEZE_WBC]"],  # freeze at current pose
+    55: ["[POLICY_STEP_ONCE]"],  # single step then auto-freeze
+    70: ["[POLICY_STEP_BURST]"],  # burst N steps then auto-freeze
+    100: ["[POLICY_PREVIEW]"],  # compute+surface next action (not executed)
+    110: ["[POLICY_CONFIRM]"],  # execute the previewed action once
+    125: ["[RESUME_POLICY]"],  # resume continuous stepping
+    150: ["[CYCLE_GOAL]"],  # switch to goal_presets[1] mid-run
+    220: ["[CYCLE_GOAL]"],  # switch back to goal_presets[0] (wraps)
+    270: ["[DAMPING]"],  # enter damping (soft)
+    285: ["[SHUTDOWN]"],  # clean shutdown (flush recorder)
+}
+
 
 @cfg_registry.register
 class h1_2_protomotions_tracker(RlPipelineCfg):
@@ -264,5 +278,61 @@ class h1_2_newton_deploy(RlPipelineCfg):
     recorder: RecorderCfg = RecorderCfg(
         enabled=True,
         output_dir="/tmp/robojudo_rec_newton_lift_teacher",
+    )
+    run_fullspeed: bool = True
+
+
+@cfg_registry.register
+class h1_2_newton_lift_deploy(h1_2_newton_deploy):
+    """Alias of ``h1_2_newton_deploy`` under the name parallel to
+    ``h1_2_mujoco_lift_scene_deploy`` / the reach counterpart below (kept both names --
+    ``h1_2_newton_deploy`` predates this task and other tooling may already reference it).
+    Also where the Ability-hand finger action head (``ability_fingers``, dims[12:24] of the
+    lift-teacher's 24-dim raw action) is now WIRED (see NewtonEnv.step()'s ``hand_pose``
+    handling + H1_2LiftTeacherOnnxPolicy's ``_last_extras["hand_pose"]`` hook) -- unlike the
+    MuJoCo lift configs, which still discard it (no Ability-hand fingers on that asset).
+
+        CUDA_VISIBLE_DEVICES=<gpu> python scripts/run_pipeline.py -c h1_2_newton_lift_deploy --max-steps 200
+    """
+
+
+@cfg_registry.register
+class h1_2_newton_reach_deploy(RlPipelineCfg):
+    """Headless sim2sim of the reach-teacher ONNX deploy flow on the NEWTON backend.
+
+    Newton analogue of ``h1_2_mujoco_reach_deploy`` (same reach-teacher ONNX, same WBC
+    state machine/recorder, same scripted schedule + two ``[CYCLE_GOAL]`` cycles) -- the
+    ONLY change is the physics backend (``H1_2NewtonEnvCfg`` -> Newton's ``SolverMuJoCo``).
+    The reach-teacher's own action space is 12-dim (wbc_reach conditioning only -- see
+    ``H1_2ReachTeacherOnnxPolicyCfg``); it has NO ``ability_fingers`` head, so (unlike
+    ``h1_2_newton_lift_deploy``) this config does not drive the Ability-hand fingers from
+    the policy itself -- the Newton scene still carries the composed hands (finger DOFs
+    physically present) for parity with the lift config's asset, they simply hold their
+    neutral open-hand target throughout this deploy (see the deploy doc's sim2sim section /
+    the smoke-test script for a scripted hand_pose overlay that exercises the SAME
+    NewtonEnv-side finger mapping independent of the policy).
+
+        CUDA_VISIBLE_DEVICES=<gpu> python scripts/run_pipeline.py -c h1_2_newton_reach_deploy --max-steps 300
+    """
+
+    robot: str = "h1_2"
+    env: H1_2NewtonEnvCfg = H1_2NewtonEnvCfg(
+        headless=True,
+        visualize_extras=False,
+        born_place_align=False,
+        random_heading=False,
+    )
+    ctrl: list[ScriptedCtrlCfg] = [
+        ScriptedCtrlCfg(schedule=_REACH_TEACHER_NEWTON_DEPLOY_SCHEDULE),
+    ]
+    policy: H1_2ReachTeacherOnnxCfg = H1_2ReachTeacherOnnxCfg()
+    wbc: WbcExecCfg = WbcExecCfg(
+        startup_ready_pose=True,
+        ramp_seconds=0.1,
+        burst_steps=5,
+    )
+    recorder: RecorderCfg = RecorderCfg(
+        enabled=True,
+        output_dir="/tmp/robojudo_rec_newton_reach_teacher",
     )
     run_fullspeed: bool = True

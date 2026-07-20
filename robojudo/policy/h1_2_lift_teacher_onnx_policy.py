@@ -313,8 +313,21 @@ class H1_2LiftTeacherOnnxPolicy(OnnxPolicy):
                 object_rel_wrists = np.concatenate(
                     [object_position - left_local, object_position - right_local]
                 ).astype(np.float32)
+        # REAL when the backend exposes Ability-hand finger state (NewtonEnv on the
+        # composed h1_2_box_feet_ability_hands.xml -- see base_env.py's
+        # `finger_joint_pos`/`finger_joint_vel` optional properties and
+        # robojudo/environment/utils/ability_hand_coupling.py for the 12-dim
+        # [left 6-dof driven, right 6-dof driven] convention), else ZERO-substituted
+        # (unchanged documented gap for backends with no Ability-hand fingers, e.g.
+        # the bare MuJoCo h1_2_box_feet.xml).
         finger_joint_pos = np.zeros(12, dtype=np.float32)
         finger_joint_vel = np.zeros(12, dtype=np.float32)
+        env_finger_pos = getattr(env_data, "finger_joint_pos", None)
+        env_finger_vel = getattr(env_data, "finger_joint_vel", None)
+        if env_finger_pos is not None:
+            finger_joint_pos = np.asarray(env_finger_pos, dtype=np.float32)
+        if env_finger_vel is not None:
+            finger_joint_vel = np.asarray(env_finger_vel, dtype=np.float32)
 
         last_action = self._last_raw_action.astype(np.float32)
 
@@ -337,6 +350,12 @@ class H1_2LiftTeacherOnnxPolicy(OnnxPolicy):
         assert obs.shape[0] == self.cfg_policy.obs_dim, f"obs dim mismatch: {obs.shape[0]} != {self.cfg_policy.obs_dim}"
 
         extras = {"CALLBACK": [], "hand_pose": None}
+        # get_action() runs AFTER get_observation() in the pipeline (see
+        # rl_pipeline.py's PolicyDofAdapter.get_pd_target), so it mutates THIS SAME
+        # dict object in place once the ability_fingers action head is computed --
+        # the pipeline's `extras.get("hand_pose", None)` (already holding a
+        # reference to this dict) then sees the populated value at env.step() time.
+        self._last_extras = extras
         return obs, extras
 
     def get_action(self, obs: np.ndarray) -> np.ndarray:
@@ -361,6 +380,15 @@ class H1_2LiftTeacherOnnxPolicy(OnnxPolicy):
         if self.cfg_policy.action_clip is not None:
             raw = np.clip(raw, -self.cfg_policy.action_clip, self.cfg_policy.action_clip)
         self._last_raw_action = raw.copy()
+
+        # dims[12:24] == ability_fingers (12-dim, [left 6-dof driven, right 6-dof
+        # driven] direct joint targets -- see NewtonEnv.step()'s hand_pose handling
+        # and ability_hand_coupling.py). Surface via extras["hand_pose"] (mutating
+        # the SAME dict get_observation() returned -- see that method's comment)
+        # so rl_pipeline.py's `env.step(send_target, extras.get("hand_pose"))`
+        # picks it up this same control step.
+        if getattr(self, "_last_extras", None) is not None:
+            self._last_extras["hand_pose"] = raw[12:24].astype(np.float32).copy()
 
         env_data = self._env_data
         assert env_data is not None, "get_action() called before get_observation() cached env_data"
