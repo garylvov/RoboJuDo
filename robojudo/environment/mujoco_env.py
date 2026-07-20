@@ -2,8 +2,12 @@ import logging
 import time
 
 import mujoco
-import mujoco_viewer
 import numpy as np
+
+try:
+    import mujoco_viewer
+except Exception:  # pragma: no cover - headless deploy hosts have no GL viewer
+    mujoco_viewer = None
 
 from robojudo.environment import Environment, env_registry
 from robojudo.environment.env_cfgs import MujocoEnvCfg
@@ -54,19 +58,35 @@ class MujocoEnv(Environment):
         # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
         mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
-        self.viewer = mujoco_viewer.MujocoViewer(
-            self.model,
-            self.data,
-            width=1200,
-            height=900,
-            hide_menus=True,
-        )
-        self.viewer.cam.distance = 3.0
-        self.viewer.cam.elevation = -10.0
-        self.viewer.cam.azimuth = 180.0
-        # self.viewer._paused = True
+        # Headless (deploy/sim2sim on a compute node with no X display): skip
+        # the interactive on-screen MujocoViewer entirely.  The env still
+        # steps physics and serves state exactly the same; only the live GL
+        # window is suppressed.  This is the deploy path -- the real robot has
+        # no viewer either, so a headless MuJoCo sim2sim exercises the same
+        # code path used against hardware.  Optional offscreen frame capture
+        # (mujoco.Renderer, EGL/OSMesa) is attempted lazily in save_frame().
+        self.headless = getattr(cfg_env, "headless", False) or mujoco_viewer is None
+        self._renderer = None
+        if self.headless:
+            self.viewer = None
+            if mujoco_viewer is None:
+                logger.warning("[MujocoEnv] mujoco_viewer unavailable -> running HEADLESS (no live window)")
+            else:
+                logger.warning("[MujocoEnv] headless=True -> running HEADLESS (no live window)")
+        else:
+            self.viewer = mujoco_viewer.MujocoViewer(
+                self.model,
+                self.data,
+                width=1200,
+                height=900,
+                hide_menus=True,
+            )
+            self.viewer.cam.distance = 3.0
+            self.viewer.cam.elevation = -10.0
+            self.viewer.cam.azimuth = 180.0
+            # self.viewer._paused = True
 
-        if cfg_env.visualize_extras:
+        if cfg_env.visualize_extras and self.viewer is not None:
             self.visualizer = MujocoVisualizer(self.viewer)
         else:
             self.visualizer = None
@@ -214,9 +234,10 @@ class MujocoEnv(Environment):
         if hand_pose is not None:
             logger.info("Hand pose-->", hand_pose)
 
-        self.viewer.cam.lookat = self.data.qpos.astype(np.float32)[:3]
-        if self.viewer.is_alive:
-            self.viewer.render()
+        if self.viewer is not None:
+            self.viewer.cam.lookat = self.data.qpos.astype(np.float32)[:3]
+            if self.viewer.is_alive:
+                self.viewer.render()
 
         if self.use_implicit_pd:
             # Implicit PD: write position targets once; MuJoCo's actuator
@@ -238,8 +259,41 @@ class MujocoEnv(Environment):
                 self.update(simple=True)
         self.update(simple=False)
 
+    def save_frame(self, path: str, width: int = 640, height: int = 480) -> bool:
+        """Offscreen-render the current sim state to ``path`` (headless).
+
+        Uses ``mujoco.Renderer`` (needs an EGL or OSMesa GL context, selected
+        via the ``MUJOCO_GL`` env var).  Returns True on success; on any GL
+        failure it logs a warning and returns False so the caller can proceed
+        without frames (frames are evidence, never load-bearing for the sim).
+        """
+        try:
+            if self._renderer is None:
+                self._renderer = mujoco.Renderer(self.model, height=height, width=width)
+            cam = mujoco.MjvCamera()
+            mujoco.mjv_defaultCamera(cam)
+            cam.distance = 3.0
+            cam.elevation = -10.0
+            cam.azimuth = 180.0
+            cam.lookat = self.data.qpos.astype(np.float64)[:3]
+            self._renderer.update_scene(self.data, camera=cam)
+            img = self._renderer.render()
+            try:
+                from PIL import Image
+
+                Image.fromarray(img).save(path)
+            except Exception:
+                import numpy as _np
+
+                _np.save(path + ".npy", img)
+            return True
+        except Exception as e:
+            logger.warning(f"[MujocoEnv] save_frame failed ({e}); continuing headless without frames")
+            return False
+
     def shutdown(self):
-        self.viewer.close()
+        if self.viewer is not None:
+            self.viewer.close()
 
 
 if __name__ == "__main__":

@@ -43,6 +43,15 @@ class MujocoEnvCfg(EnvCfg):
 
     visualize_extras: bool = True  # TODO: remove
 
+    headless: bool = False
+    """Run without the interactive on-screen MujocoViewer (no X display).
+
+    Deploy/sim2sim on a compute node: physics + state serving are identical to
+    the windowed path; only the live GL window is suppressed.  Also forced on
+    automatically when the ``mujoco_viewer`` package is not importable.  Offscreen
+    frame capture (``MujocoEnv.save_frame``) is still available via
+    ``mujoco.Renderer`` when a headless GL context (EGL/OSMesa) exists."""
+
     random_heading: bool = False
     """Randomize the robot's yaw heading on each spawn/reborn (useful for testing heading alignment)."""
 
