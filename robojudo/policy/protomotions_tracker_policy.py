@@ -38,6 +38,8 @@ from robojudo.utils.motion_utils import (
     _extract_yaw_quat_np,
     apply_heading_offset_np,
     compute_yaw_offset_np,
+    quat_mul_np,
+    quat_rotate_np,
 )
 
 logger = logging.getLogger(__name__)
@@ -272,6 +274,8 @@ class ProtoMotionsTrackerPolicy(Policy):
         # as root_local_ang_vel -- NO quat_rotate_inverse needed.
         root_local_ang_vel = np.asarray(env_data.base_ang_vel, dtype=np.float32)
 
+        anchor_pos = self._get_anchor_pos(env_data)
+
         if self._default_pose_mode:
             # -- Synthetic references: hold default standing pose --
             # Target DOFs = default standing pose, velocities = zero,
@@ -282,6 +286,8 @@ class ProtoMotionsTrackerPolicy(Policy):
             future_anchor_rot = np.tile(anchor_yaw_only, (num_steps, 1))
             future_dof_pos = np.tile(self._default_dof_pos, (num_steps, 1))
             future_dof_vel = np.zeros_like(future_dof_pos)
+            # No displacement command while holding pose -- "stay put".
+            future_anchor_pos = np.tile(anchor_pos, (num_steps, 1))
         else:
             # -- Future motion references with heading alignment --
             # Clamp each future step so it never exceeds the last valid frame.
@@ -296,17 +302,57 @@ class ProtoMotionsTrackerPolicy(Policy):
             future_dof_pos = future_refs["dof_pos"]
             future_dof_vel = future_refs["dof_vel"]
 
+            # -- Anchor position displacement command --
+            # Some (dense DeepMimic-style) teachers additionally condition on
+            # a heading-local XYZ displacement command: reference-anchor
+            # motion minus current-anchor motion, rotated into the robot's
+            # current heading frame (see
+            # protomotions/envs/obs/mimic_command.py::build_mimic_future_displacement_cmd).
+            # It is a pure delta (translation-invariant), so we don't need the
+            # robot and the motion clip to share a world frame: we compute the
+            # motion's own raw anchor-position delta, re-express it in the
+            # robot's heading-aligned frame (the SAME `self._heading_offset`
+            # used for orientation above, composed with the robot's current
+            # yaw since the exported obs kernel rotates by the fed
+            # `current.anchor_rot`'s yaw internally), and add it on top of the
+            # robot's actual current anchor position (which is otherwise an
+            # arbitrary/unused origin -- only the delta matters).
+            ref_body_pos = future_refs.get("body_pos")
+            cur_motion_state = self._ref_source.get_state_at_frame(self._frame)
+            cur_body_pos = cur_motion_state.get("body_pos")
+            if ref_body_pos is not None and cur_body_pos is not None:
+                motion_delta = (
+                    ref_body_pos[:, self._anchor_idx, :] - cur_body_pos[self._anchor_idx]
+                )
+                robot_yaw_now = _extract_yaw_quat_np(anchor_rot)
+                compose_quat = quat_mul_np(robot_yaw_now, self._heading_offset)
+                delta_in_robot_frame = quat_rotate_np(compose_quat, motion_delta)
+                future_anchor_pos = anchor_pos[None, :] + delta_in_robot_frame
+            else:
+                # Reference source has no position channel (e.g. teleop's
+                # LiveRefSource, which only tracks dof_pos/dof_vel/body_rot).
+                # Fall back to a zero displacement command.
+                future_anchor_pos = np.tile(anchor_pos, (future_anchor_rot.shape[0], 1))
+
         # -- Build ONNX inputs --
         key_to_array = {
             "current.dof_pos": dof_pos[None],
             "current.dof_vel": dof_vel[None],
             "current.anchor_rot": anchor_rot[None],
+            "current.anchor_pos": anchor_pos[None],
             "current.root_local_ang_vel": root_local_ang_vel[None],
             "mimic.future_anchor_rot": future_anchor_rot[None],
+            "mimic.future_anchor_pos": future_anchor_pos[None],
             "mimic.future_dof_pos": future_dof_pos[None],
             "mimic.future_dof_vel": future_dof_vel[None],
             "historical.processed_actions": self._prev_actions[None, None],
         }
+        # noisy.*: ProtoMotions' observation-noise view of the robot state.
+        # Noise is training-only DR; at inference the noisy view aliases the
+        # clean tensors, so checkpoints exported with noisy_* input bindings
+        # (e.g. Track D teachers) are fed the same state arrays.
+        for _clean in ("dof_pos", "dof_vel", "anchor_rot", "anchor_pos", "root_local_ang_vel"):
+            key_to_array["noisy." + _clean] = key_to_array["current." + _clean]
         onnx_inputs = {}
         for onnx_name in self._onnx_in_names:
             sem_key = self._onnx_name_to_key.get(onnx_name)
@@ -370,6 +416,23 @@ class ProtoMotionsTrackerPolicy(Policy):
                 return np.asarray(env_data.torso_quat, dtype=np.float32)
         # Pelvis / root body -- always available as base_quat
         return np.asarray(env_data.base_quat, dtype=np.float32)
+
+    def _get_anchor_pos(self, env_data) -> np.ndarray:
+        """Read the anchor body's world position from env_data.
+
+        Mirrors :meth:`_get_anchor_quat`. Only used as a translation-invariant
+        origin for the anchor-position displacement command (see
+        ``get_observation``) -- its absolute value is never meaningful on its
+        own, only the delta between "current" and "future" anchor positions.
+        """
+        name = self._anchor_body_name
+        if name is not None and name not in (None, "pelvis"):
+            fk = env_data.fk_info
+            if fk is not None and name in fk:
+                return np.asarray(fk[name]["pos"], dtype=np.float32)
+            if name == "torso_link" and getattr(env_data, "torso_pos", None) is not None:
+                return np.asarray(env_data.torso_pos, dtype=np.float32)
+        return np.asarray(env_data.base_pos, dtype=np.float32)
 
     def get_action(self, obs):
         return self._stashed_pd_targets

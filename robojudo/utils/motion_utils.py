@@ -32,6 +32,8 @@ __all__ = [
     "LiveRefSource",
     "compute_yaw_offset_np",
     "apply_heading_offset_np",
+    "quat_mul_np",
+    "quat_rotate_np",
     "_extract_yaw_quat_np",
 ]
 
@@ -94,6 +96,26 @@ def apply_heading_offset_np(
     offset_broadcast = np.broadcast_to(offset_quat_xyzw, flat.shape)
     aligned = _quat_mul_np(offset_broadcast, flat)
     return aligned.reshape(original_shape)
+
+
+# Public alias -- exposed for policies that need to compose heading offsets
+# with other quaternions (e.g. anchor-position displacement commands).
+quat_mul_np = _quat_mul_np
+
+
+def quat_rotate_np(q_xyzw: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate 3-vector(s) ``v`` by unit quaternion(s) ``q_xyzw`` (Hamilton, xyzw).
+
+    Broadcastable over leading batch dims; ``q_xyzw`` is broadcast to
+    ``v``'s leading shape if it doesn't already match. Uses the standard
+    cross-product formula (equivalent to the sandwich product
+    ``q * (v, 0) * q_conj`` but without building 4-vectors).
+    """
+    q = np.broadcast_to(q_xyzw, v.shape[:-1] + (4,)).astype(np.float32)
+    q_vec = q[..., :3]
+    q_w = q[..., 3:4]
+    t = 2.0 * np.cross(q_vec, v)
+    return (v + q_w * t + np.cross(q_vec, t)).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
