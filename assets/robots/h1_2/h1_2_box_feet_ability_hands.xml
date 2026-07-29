@@ -160,7 +160,13 @@
                       <joint name="left_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" limited="true" range="-1.27 1.27" actuatorfrcrange="-19 19" stiffness="7.90" damping="0.50" armature="0.002" frictionloss="0.03" />
                       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.1 0.1 0.1 1" mesh="wrist_yaw_link" name="wrist_yaw_link_visual" />
                       
-                    <body name="lh_base" pos="0.08 0 0" quat="0.5 -0.5 0.5 -0.5">
+                    <!-- FACTORY MOUNT (2026-07-29 hand-mount lineage audit): pos/quat below are the
+                         left_ability_mount_joint localPos0/localRot0 read straight from the TRAINING
+                         USD (wbc_data/assets/h1_2_ability/h1_2_box_feet_ability.usd), identical to
+                         GAME1_ASSET_ROOT r13 rig_meta.json /mount/left. The previous values
+                         pos="0.08 0 0" quat="0.5 -0.5 0.5 -0.5" were 180 deg about mount-local Z
+                         (L/R quats swapped) + 15.5 mm too far out -> hands rendered flipped. -->
+                    <body name="lh_base" pos="0.0645 0 0" quat="0.5 0.5 0.5 0.5">
       <inertial pos="-0.00065452 -0.00598838 0.0507727" quat="0.708239 0.0702325 -0.0479385 0.700833" mass="0.37511" diaginertia="0.00047625 0.0003769 0.00016893" />
       <geom name="lh_palm_mesh_coll" pos="0.0240477 0.00378125 0.0323296" quat="0.0442297 0.00061027 0.999021 2.70192e-05" type="mesh" mesh="lh_palm_hull" />
       <body name="lh_index_L1" pos="0.028 -0.009 0.096" quat="0.71444 0.12971 -0.685961 -0.04699">
@@ -260,7 +266,11 @@
                       <joint name="right_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" limited="true" range="-1.27 1.27" actuatorfrcrange="-19 19" stiffness="7.90" damping="0.50" armature="0.002" frictionloss="0.03" />
                       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.1 0.1 0.1 1" mesh="wrist_yaw_link" name="wrist_yaw_link_visual_2" />
                       
-                    <body name="rh_base" pos="0.08 0 0" quat="0.5 0.5 0.5 0.5">
+                    <!-- FACTORY MOUNT (2026-07-29): right_ability_mount_joint localPos0/localRot0 from
+                         the training USD == r13 rig_meta /mount/right ([-0.5 0.5 -0.5 0.5], same
+                         rotation as the sign-normalized quat below). Previous pos="0.08 0 0"
+                         quat="0.5 0.5 0.5 0.5" was the LEFT mount (180 deg Z flip) + 15.5 mm standoff. -->
+                    <body name="rh_base" pos="0.0645 0 0" quat="0.5 -0.5 0.5 -0.5">
       <inertial pos="0.00065452 -0.00598838 0.0507727" quat="0.700833 0.0479385 -0.0702325 0.708239" mass="0.37511" diaginertia="0.00047625 0.0003769 0.00016893" />
       <geom name="rh_palm_mesh_coll" pos="-0.0240477 0.00378125 0.0323296" quat="0.0442297 0.00061027 -0.999021 -2.70192e-05" type="mesh" mesh="rh_palm_hull_mir" />
       <body name="rh_index_L1" pos="-0.028 -0.009 0.096" quat="0.685925 0.0469841 -0.714476 -0.129704">
