@@ -10,7 +10,13 @@ authors = [
     { name = "HansZ8", email = "GDDG80@outlook.com" }
 ]
 readme = "README.md"
-requires-python = ">=3.11"
+# 3.10, not 3.11: the package has never actually needed 3.11. Verified across all
+# 122 modules under CPython 3.10 -- every file compiles, and there is no use of any
+# 3.11-only stdlib/typing feature (tomllib, typing.Self/LiteralString/Never,
+# StrEnum, except*/ExceptionGroup, datetime.UTC, asyncio.TaskGroup). This file's own
+# [tool.ruff] target-version is already "py310", so the old floor contradicted the
+# linter it ships with.
+requires-python = ">=3.10"
 
 dynamic = ["dependencies"]
 
