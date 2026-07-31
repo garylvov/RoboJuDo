@@ -167,9 +167,20 @@
                          pos="0.08 0 0" quat="0.5 -0.5 0.5 -0.5" were 180 deg about mount-local Z
                          (L/R quats swapped) + 15.5 mm too far out -> hands rendered flipped. -->
                     <body name="lh_base" pos="0.0645 0 0" quat="0.5 0.5 0.5 0.5">
-      <inertial pos="-0.00065452 -0.00598838 0.0507727" quat="0.708239 0.0702325 -0.0479385 0.700833" mass="0.37511" diaginertia="0.00047625 0.0003769 0.00016893" />
-      <geom name="lh_palm_mesh_coll" pos="0.0240477 0.00378125 0.0323296" quat="0.0442297 0.00061027 0.999021 2.70192e-05" type="mesh" mesh="lh_palm_hull" />
-      <body name="lh_index_L1" pos="0.028 -0.009 0.096" quat="0.71444 0.12971 -0.685961 -0.04699">
+      <!-- LEFT CHAIN Rz180 CORRECTION (2026-07-31): ready_pose probe (media/orireach/ready_pose/)
+           showed the left palm normal world +Z while the factory training USD
+           (wbc_data/assets/h1_2_ability/h1_2_box_feet_ability.usd) has -Z (right agreed, -Z both).
+           Measured against the USD left_palm subtree: every direct child satisfied
+           R_mjcf = Rz180 * R_usd * Rx180, p_mjcf = Rz180 * p_usd (the child-side Rx180 is the
+           factory's own left-joint frame convention, USD lr1=(0,-1,0,0)). The vendor left chain
+           was compensated for the pre-c76fc33 swapped mount; once the mount was fixed to the
+           factory frame the whole assembly sat 180 deg about mount-local Z. Fix: parent-side
+           Rz180 on every direct child of lh_base: pos (x,y,z) to (-x,-y,z),
+           quat (a,b,c,d) to (-d,-c,b,a), an exact literal permutation; all values USD-verified
+           (corrected palm geom == USD left_palm_coll in-palm transform to 7 decimals). -->
+      <inertial pos="0.00065452 0.00598838 0.0507727" quat="0.700833 -0.0479385 -0.0702325 -0.708239" mass="0.37511" diaginertia="0.00047625 0.0003769 0.00016893" />
+      <geom name="lh_palm_mesh_coll" pos="-0.0240477 -0.00378125 0.0323296" quat="2.70192e-05 0.999021 -0.00061027 -0.0442297" type="mesh" mesh="lh_palm_hull" />
+      <body name="lh_index_L1" pos="-0.028 0.009 0.096" quat="0.04699 0.685961 0.12971 0.71444">
         <inertial pos="0.017755 -0.000213868 -2.02851e-05" quat="0.00502232 0.707999 -0.00737691 0.706157" mass="0.00636" diaginertia="1.05412e-06 9.77895e-07 2.84951e-07" />
         <joint name="lh_index_q1" pos="0 0 0" axis="0 0 1" range="0 1.74" actuatorfrcrange="-6 6" damping="0.001" frictionloss="0.001" />
         <geom name="lh_index_mesh_coll_1" pos="0.0384727 0.0032577 0" quat="0.999108 0 0 0.0422244" type="mesh" mesh="lh_idx-F1-hull" />
@@ -179,7 +190,7 @@
           <geom name="lh_index_mesh_coll_2" pos="0.0091241 0 0" quat="1 0 0 0" type="mesh" mesh="lh_idx-F2-Lg-hull" />
         </body>
       </body>
-      <body name="lh_middle_L1" pos="0.008 -0.012 0.099" quat="0.698369 0.103818 -0.704545 -0.0715454">
+      <body name="lh_middle_L1" pos="-0.008 0.012 0.099" quat="0.0715454 0.704545 0.103818 0.698369">
         <inertial pos="0.017755 -0.000213868 -2.02851e-05" quat="0.00502232 0.707999 -0.00737691 0.706157" mass="0.00636" diaginertia="1.05412e-06 9.77895e-07 2.84951e-07" />
         <joint name="lh_middle_q1" pos="0 0 0" axis="0 0 1" range="0 1.74" actuatorfrcrange="-6 6" damping="0.001" frictionloss="0.001" />
         <geom name="lh_middle_mesh_coll_1" pos="0.0384727 0.0032577 0" quat="0.999108 0 0 0.0422244" type="mesh" mesh="lh_idx-F1-hull" />
@@ -189,7 +200,7 @@
           <geom name="lh_middle_mesh_coll_2" pos="0.0091241 0 0" quat="1 0 0 0" type="mesh" mesh="lh_idx-F2-Lg-hull" />
         </body>
       </body>
-      <body name="lh_ring_L1" pos="-0.012 -0.01 0.097" quat="0.681151 0.0770537 -0.721343 -0.0987941">
+      <body name="lh_ring_L1" pos="0.012 0.01 0.097" quat="0.0987941 0.721343 0.0770537 0.681151">
         <inertial pos="0.017755 -0.000213868 -2.02851e-05" quat="0.00502232 0.707999 -0.00737691 0.706157" mass="0.00636" diaginertia="1.05412e-06 9.77895e-07 2.84951e-07" />
         <joint name="lh_ring_q1" pos="0 0 0" axis="0 0 1" range="0 1.74" actuatorfrcrange="-6 6" damping="0.001" frictionloss="0.001" />
         <geom name="lh_ring_mesh_coll_1" pos="0.0384727 0.0032577 0" quat="0.999108 0 0 0.0422244" type="mesh" mesh="lh_idx-F1-hull" />
@@ -199,7 +210,7 @@
           <geom name="lh_ring_mesh_coll_2" pos="0.0091241 0 0" quat="1 0 0 0" type="mesh" mesh="lh_idx-F2-Lg-hull" />
         </body>
       </body>
-      <body name="lh_pinky_L1" pos="-0.031 -0.007 0.091" quat="0.68182 0.0542329 -0.719193 -0.122235">
+      <body name="lh_pinky_L1" pos="0.031 0.007 0.091" quat="0.122235 0.719193 0.0542329 0.68182">
         <inertial pos="0.017755 -0.000213868 -2.02851e-05" quat="0.00502232 0.707999 -0.00737691 0.706157" mass="0.00636" diaginertia="1.05412e-06 9.77895e-07 2.84951e-07" />
         <joint name="lh_pinky_q1" pos="0 0 0" axis="0 0 1" range="0 1.74" actuatorfrcrange="-6 6" damping="0.001" frictionloss="0.001" />
         <geom name="lh_pinky_mesh_coll_1" pos="0.0384727 0.0032577 0" quat="0.999108 0 0 0.0422244" type="mesh" mesh="lh_idx-F1-hull" />
@@ -209,7 +220,7 @@
           <geom name="lh_pinky_mesh_coll_2" pos="0.0091241 0 0" quat="1 0 0 0" type="mesh" mesh="lh_idx-F2-hull" />
         </body>
       </body>
-      <body name="lh_thumb_L1" pos="0.0240477 0.00378125 0.0323296" quat="0.00414316 -0.994629 0.0935821 -0.0440352">
+      <body name="lh_thumb_L1" pos="-0.0240477 -0.00378125 0.0323296" quat="0.0440352 -0.0935821 -0.994629 0.00414316">
         <inertial pos="0.014335 -0.00188501 -0.00504062" quat="0.364302 0.683087 0.523596 0.355703" mass="0.002" diaginertia="2.52818e-07 2.40092e-07 7.7407e-08" />
         <joint name="lh_thumb_q1" pos="0 0 0" axis="0 0 1" range="-1.74 0" actuatorfrcrange="-1.2 1.2" damping="0.001" frictionloss="0.001" />
         <geom name="lh_thumb_coll_mesh_1" pos="0.02783 0 -0.01475" quat="0.60876 -0.793355 0 0" type="mesh" mesh="lh_thumb-F1-hull" />

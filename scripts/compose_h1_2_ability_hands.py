@@ -38,13 +38,31 @@ HAND_R = f"{WT}/assets/psyonic_ability_hand/mjcf/ability_hand_right_large.xml"
 HAND_MESH_BASE = f"{WT}/assets/psyonic_ability_hand/mjcf/"  # hand file= paths are relative to this
 OUT = f"{WT}/third_party/RoboJuDo/assets/robots/h1_2/h1_2_box_feet_ability_hands.xml"
 
-# Approximate wrist mount: hand base sits ~8 cm past the wrist_yaw origin along +x
-# (the H1_2 forearm extends +x). Left/right use mirrored yaw so the palms face
-# inward toward a grasped object. Tune pos/quat for exact palm alignment (remainder).
+# FACTORY MOUNTS (2026-07-29/31): pos/quat are the {left,right}_ability_mount_joint
+# localPos0/localRot0 read straight from the training USD
+# (wbc_data/assets/h1_2_ability/h1_2_box_feet_ability.usd) == r13 rig_meta /mount.
+# The original values (0.08, L/R quats swapped) rendered the hands flipped.
 MOUNTS = {
-    "lh_": {"parent": "left_wrist_yaw_link", "pos": "0.08 0 0", "quat": "0.5 -0.5 0.5 -0.5"},
-    "rh_": {"parent": "right_wrist_yaw_link", "pos": "0.08 0 0", "quat": "0.5 0.5 0.5 0.5"},
+    "lh_": {"parent": "left_wrist_yaw_link", "pos": "0.0645 0 0", "quat": "0.5 0.5 0.5 0.5"},
+    "rh_": {"parent": "right_wrist_yaw_link", "pos": "0.0645 0 0", "quat": "0.5 -0.5 0.5 -0.5"},
 }
+
+
+def _rz180_parent_side(elem: ET.Element):
+    """Parent-side Rz180 on a pos/quat-carrying element: pos (x,y,z)->(-x,-y,z),
+    quat (a,b,c,d) -> (-d,-c,b,a) (exact literal permutation, no precision loss)."""
+
+    def neg(tok: str) -> str:
+        return tok[1:] if tok.startswith("-") else ("0" if float(tok) == 0.0 else "-" + tok)
+
+    if "pos" in elem.attrib:
+        x, y, z = elem.attrib["pos"].split()
+        elem.attrib["pos"] = f"{neg(x)} {neg(y)} {z}"
+    a, b, c, d = elem.attrib.get("quat", "1 0 0 0").split()
+    q = [neg(d), neg(c), b, a]
+    if q[0].startswith("-"):  # sign-normalize w >= 0
+        q = [neg(t) for t in q]
+    elem.attrib["quat"] = " ".join(q)
 
 
 def _abs_h1_mesh(file_attr: str) -> str:
@@ -102,6 +120,21 @@ def compose():
         _prefix_names(base, prefix)
         base.attrib["pos"] = mount["pos"]
         base.attrib["quat"] = mount["quat"]
+
+        if prefix == "lh_":
+            # LEFT CHAIN Rz180 CORRECTION (2026-07-31, ready_pose evidence
+            # media/orireach/ready_pose/): at the factory mount frame the vendor left
+            # chain sits 180 deg about mount-local Z vs the training USD left palm
+            # subtree (measured: R_mjcf = Rz180 * R_usd * Rx180, p_mjcf = Rz180 * p_usd;
+            # the child-side Rx180 is the factory's own left-joint frame convention,
+            # USD lr1=(0,-1,0,0), shared by the vendor model). Apply parent-side Rz180
+            # to every DIRECT child (bodies, geoms, inertial) of the left base; chain
+            # internals are self-consistent and stay untouched. Verified: corrected
+            # palm geom == USD left_palm_coll in-palm transform to 7 decimals, and all
+            # assembled L1/L2 in-palm positions match the USD to 6 decimals.
+            for child in list(base):
+                if child.tag in ("body", "geom", "inertial", "site"):
+                    _rz180_parent_side(child)
 
         # attach under the wrist body
         bodies[mount["parent"]].append(base)
