@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 import mujoco
@@ -291,8 +292,14 @@ class MujocoEnv(Environment):
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"
 
-        if hand_pose is not None:
-            logger.info("Hand pose-->", hand_pose)
+        if hand_pose is not None and os.environ.get("ROBOJUDO_LOG_HAND_POSE"):
+            # Opt-in: this fires EVERY control step (50 Hz), so unconditionally
+            # it drowns the rollout -- the operator console and per-episode
+            # results scroll past before you can read them.
+            # "%s", not a second positional arg: logging treats extra args as
+            # printf operands, so the original comma form raised TypeError
+            # INSIDE the handler and printed a full traceback per step.
+            logger.debug("Hand pose--> %s", hand_pose)
 
         if self.viewer is not None:
             self.viewer.cam.lookat = self.data.qpos.astype(np.float32)[:3]
