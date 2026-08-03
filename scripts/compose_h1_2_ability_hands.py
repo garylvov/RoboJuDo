@@ -30,8 +30,9 @@ Regenerate (both variants) with::
 """
 
 import argparse
-import math
+import importlib.util
 import os
+import sys
 import xml.etree.ElementTree as ET
 
 # Repo root: <repo>/third_party/RoboJuDo/scripts/<this file>. Overridable for
@@ -45,71 +46,35 @@ H1_2_MESHDIR = f"{WT}/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_
 HAND_L = f"{WT}/assets/psyonic_ability_hand/mjcf/ability_hand_left_large.xml"
 HAND_R = f"{WT}/assets/psyonic_ability_hand/mjcf/ability_hand_right_large.xml"
 HAND_MESH_BASE = f"{WT}/assets/psyonic_ability_hand/mjcf/"  # hand file= paths are relative to this
-RING_STL = f"{WT}/assets/cad/H1_2_wrist_no_camera.STL"  # CAD source, mm units, mount axis +Y
 OUT_DIR = f"{WT}/third_party/RoboJuDo/assets/robots/h1_2"
 
+# SINGLE SOURCE OF TRUTH: every mount pos/quat, the standoff, ring pose and variant table
+# come from imprint's h1_2_asset_config (stdlib-only; loaded by FILE PATH so this script
+# stays runnable under a bare python with no imprint install). NEVER re-declare any of
+# those constants here -- 2026-08-02's left-hand flip and 1.5mm seat-gap bugs were exactly
+# this script and the USD factory reading different hardcoded copies.
+_CFG_PATH = os.path.join(WT, "src/imprint/integrations/unitree_lab/h1_2_asset_config.py")
+_spec = importlib.util.spec_from_file_location("h1_2_asset_config", _CFG_PATH)
+CFG = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = CFG  # dataclass field resolution needs the module registered
+_spec.loader.exec_module(CFG)
 
-def _qmul(a, b):
-    w1, x1, y1, z1 = a
-    w2, x2, y2, z2 = b
-    return (
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-    )
+RING_STL = os.path.join(WT, CFG.RING_STL_RELPATH)  # CAD source, mm units, mount axis +Y
 
-
-def _qrx(deg):
-    h = math.radians(deg) / 2.0
-    return (math.cos(h), math.sin(h), 0.0, 0.0)
-
-
-def _qstr(q):
-    if q[0] < 0:
-        q = tuple(-v for v in q)
-    q = tuple(0.0 if abs(v) < 1e-12 else v for v in q)  # snap qmul float noise
-    return " ".join(f"{v:.10g}" for v in q)
-
-
-# FACTORY MOUNTS (2026-07-29/31): pos/quat are the {left,right}_ability_mount_joint
-# localPos0/localRot0 read straight from the r13 training USD
-# (wbc_data/assets/h1_2_ability/h1_2_box_feet_ability.usd) == the factory
-# ABILITY_MOUNT_ROTATION_CONFIGS["thumb_up"] seat (palms-DOWN at joint-zero).
-#
-# STANDOFF (2026-08-02 gap forensics): the r13 seat X (0.0645, graft-era, no vendor
-# derivation) leaves a REAL +1.50mm gap between the wrist_yaw_link visual tip (63.00mm)
-# and the ring/hand near face (64.50mm), both engines, both sides. The factory's own
-# v1_1_4_closed standoff (imprint h1_2_usd.py ABILITY_MOUNT_STANDOFF_X_M) closes it:
-# palms_in (r14 default) seats at 0.063 (flush); palms_down KEEPS the legacy 0.0645 for
-# engine parity with existing r13-era checkpoints (its whole reason to exist).
-MOUNT_POS = {"palms_down": "0.0645 0 0", "palms_in": "0.063 0 0"}
-_PALMS_DOWN = {"lh_": (0.5, 0.5, 0.5, 0.5), "rh_": (0.5, -0.5, 0.5, -0.5)}
-# palms_in (USER RULING 2026-07-30, default convention for r14+): both palm inner normals
-# point INTO the robot at joint-zero (LEFT -> world -Y, RIGHT -> +Y). Derived IN CODE from
-# the palms_down seats by the factory's own config delta -- ABILITY_MOUNT_ROTATION_CONFIGS
-# (imprint h1_2_usd.py): palms_in - thumb_up = {left: -90, right: +90} deg about the mount
-# axis (wrist-local X), pre-multiplied. Both seats collapse to (sqrt2/2, 0, sqrt2/2, 0).
-_PALMS_IN_DELTA_DEG = {"lh_": -90.0, "rh_": +90.0}
+# variant -> mount seat pos/quat strings, derived through the config's own helpers
+# (formatting included -- part of the MJCF bit-identity contract).
+MOUNT_POS = {v: CFG.seat_pos_str(v) for v in CFG.MOUNT_VARIANTS}
 MOUNT_CONFIGS = {
-    "palms_down": {p: _qstr(q) for p, q in _PALMS_DOWN.items()},
-    "palms_in": {
-        p: _qstr(_qmul(_qrx(_PALMS_IN_DELTA_DEG[p]), _PALMS_DOWN[p])) for p in _PALMS_DOWN
-    },
+    v: {"lh_": CFG.seat_quat_str(v, "left"), "rh_": CFG.seat_quat_str(v, "right")}
+    for v in CFG.MOUNT_VARIANTS
 }
-VARIANT_OUT = {
-    "palms_down": "h1_2_box_feet_ability_hands.xml",
-    "palms_in": "h1_2_box_feet_ability_hands_palmsin.xml",
-}
+VARIANT_OUT = {v: spec.mjcf_name for v, spec in CFG.MOUNT_VARIANTS.items()}
 
-# MOUNT ADAPTER RING (2026-08-02): the CAD mount (RING_STL, millimeters, mount axis +Y,
-# wrist-side mating plane at y=0, fourfold-symmetric -- results/real_mount_usd/
-# step1_stl_analysis.json) rendered as a VISUAL-ONLY geom on each wrist_yaw_link. The ring
-# is bolted to the ARM, so it is authored on the wrist body (mount-config independent):
-# pos = the mount seat localPos0 (MOUNT_POS, matching the USD wrist_mesh placement probed
-# at (0.0645, 0, 0) in the wrist frame), quat = Rz(-90) mapping STL +Y -> wrist +X.
-RING_QUAT = _qstr((math.sqrt(0.5), 0.0, 0.0, -math.sqrt(0.5)))  # Rz(-90): +Y_stl -> +X_wrist
-RING_RGBA = "1 0.42 0 1"  # orange, matches the hand_mount render convention
+# MOUNT ADAPTER RING: CAD mount rendered as a VISUAL-ONLY geom on each wrist_yaw_link.
+# The ring is bolted to the ARM, so it is authored on the wrist body: pos = the variant
+# mount seat, quat = Rz(-90) mapping STL +Y -> wrist +X (config constants).
+RING_QUAT = CFG.qstr(CFG.RING_QUAT_WXYZ)
+RING_RGBA = CFG.RING_RGBA
 
 
 def _rz180_parent_side(elem: ET.Element):
@@ -175,7 +140,7 @@ def compose(variant: str, out_dir: str) -> str:
     ring_mesh = ET.SubElement(h1_asset, "mesh")
     ring_mesh.attrib.update(
         {"name": "wrist_mount_ring", "file": os.path.normpath(RING_STL),
-         "scale": "0.001 0.001 0.001"}
+         "scale": " ".join([f"{CFG.RING_MESH_SCALE:.10g}"] * 3)}
     )
     for side in ("left", "right"):
         ring = ET.SubElement(bodies[f"{side}_wrist_yaw_link"], "geom")
