@@ -76,7 +76,14 @@ def _qstr(q):
 # localPos0/localRot0 read straight from the r13 training USD
 # (wbc_data/assets/h1_2_ability/h1_2_box_feet_ability.usd) == the factory
 # ABILITY_MOUNT_ROTATION_CONFIGS["thumb_up"] seat (palms-DOWN at joint-zero).
-MOUNT_POS = "0.0645 0 0"
+#
+# STANDOFF (2026-08-02 gap forensics): the r13 seat X (0.0645, graft-era, no vendor
+# derivation) leaves a REAL +1.50mm gap between the wrist_yaw_link visual tip (63.00mm)
+# and the ring/hand near face (64.50mm), both engines, both sides. The factory's own
+# v1_1_4_closed standoff (imprint h1_2_usd.py ABILITY_MOUNT_STANDOFF_X_M) closes it:
+# palms_in (r14 default) seats at 0.063 (flush); palms_down KEEPS the legacy 0.0645 for
+# engine parity with existing r13-era checkpoints (its whole reason to exist).
+MOUNT_POS = {"palms_down": "0.0645 0 0", "palms_in": "0.063 0 0"}
 _PALMS_DOWN = {"lh_": (0.5, 0.5, 0.5, 0.5), "rh_": (0.5, -0.5, 0.5, -0.5)}
 # palms_in (USER RULING 2026-07-30, default convention for r14+): both palm inner normals
 # point INTO the robot at joint-zero (LEFT -> world -Y, RIGHT -> +Y). Derived IN CODE from
@@ -139,10 +146,11 @@ def _prefix_names(elem: ET.Element, prefix: str):
 
 
 def compose(variant: str, out_dir: str) -> str:
+    mount_pos = MOUNT_POS[variant]
     mounts = {
-        "lh_": {"parent": "left_wrist_yaw_link", "pos": MOUNT_POS,
+        "lh_": {"parent": "left_wrist_yaw_link", "pos": mount_pos,
                 "quat": MOUNT_CONFIGS[variant]["lh_"]},
-        "rh_": {"parent": "right_wrist_yaw_link", "pos": MOUNT_POS,
+        "rh_": {"parent": "right_wrist_yaw_link", "pos": mount_pos,
                 "quat": MOUNT_CONFIGS[variant]["rh_"]},
     }
     h1_tree = ET.parse(H1_2_SRC)
@@ -173,7 +181,7 @@ def compose(variant: str, out_dir: str) -> str:
         ring = ET.SubElement(bodies[f"{side}_wrist_yaw_link"], "geom")
         ring.attrib.update(
             {"name": f"{side[0]}h_wrist_mount_ring", "type": "mesh",
-             "mesh": "wrist_mount_ring", "pos": MOUNT_POS, "quat": RING_QUAT,
+             "mesh": "wrist_mount_ring", "pos": mount_pos, "quat": RING_QUAT,
              "group": "1", "contype": "0", "conaffinity": "0", "rgba": RING_RGBA}
         )
 
