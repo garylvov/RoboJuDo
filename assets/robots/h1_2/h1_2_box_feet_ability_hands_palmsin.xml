@@ -160,7 +160,7 @@
                       <joint name="left_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" limited="true" range="-1.27 1.27" actuatorfrcrange="-19 19" stiffness="7.90" damping="0.50" armature="0.002" frictionloss="0.03" />
                       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.1 0.1 0.1 1" mesh="wrist_yaw_link" name="wrist_yaw_link_visual" />
                       
-                    <geom name="lh_wrist_mount_ring" type="mesh" mesh="wrist_mount_ring" pos="0.0645 0 0" quat="0.7071067812 0 0 -0.7071067812" group="1" contype="0" conaffinity="0" rgba="1 0.42 0 1" /><body name="lh_base" pos="0.0645 0 0" quat="0.5 0.5 0.5 0.5">
+                    <geom name="lh_wrist_mount_ring" type="mesh" mesh="wrist_mount_ring" pos="0.063 0 0" quat="0.7071067812 0 0 -0.7071067812" group="1" contype="0" conaffinity="0" rgba="1 0.42 0 1" /><body name="lh_base" pos="0.063 0 0" quat="0.7071067812 0 0.7071067812 0">
       <inertial pos="0.00065452 0.00598838 0.0507727" quat="0.700833 -0.0479385 -0.0702325 -0.708239" mass="0.37511" diaginertia="0.00047625 0.0003769 0.00016893" />
       <geom name="lh_palm_mesh_coll" pos="-0.0240477 -0.00378125 0.0323296" quat="2.70192e-05 0.999021 -0.00061027 -0.0442297" type="mesh" mesh="lh_palm_hull" />
       <body name="lh_index_L1" pos="-0.028 0.009 0.096" quat="0.04699 0.685961 0.12971 0.71444">
@@ -260,7 +260,7 @@
                       <joint name="right_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" limited="true" range="-1.27 1.27" actuatorfrcrange="-19 19" stiffness="7.90" damping="0.50" armature="0.002" frictionloss="0.03" />
                       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.1 0.1 0.1 1" mesh="wrist_yaw_link" name="wrist_yaw_link_visual_2" />
                       
-                    <geom name="rh_wrist_mount_ring" type="mesh" mesh="wrist_mount_ring" pos="0.0645 0 0" quat="0.7071067812 0 0 -0.7071067812" group="1" contype="0" conaffinity="0" rgba="1 0.42 0 1" /><body name="rh_base" pos="0.0645 0 0" quat="0.5 -0.5 0.5 -0.5">
+                    <geom name="rh_wrist_mount_ring" type="mesh" mesh="wrist_mount_ring" pos="0.063 0 0" quat="0.7071067812 0 0 -0.7071067812" group="1" contype="0" conaffinity="0" rgba="1 0.42 0 1" /><body name="rh_base" pos="0.063 0 0" quat="0.7071067812 0 0.7071067812 0">
       <inertial pos="0.00065452 -0.00598838 0.0507727" quat="0.700833 0.0479385 -0.0702325 0.708239" mass="0.37511" diaginertia="0.00047625 0.0003769 0.00016893" />
       <geom name="rh_palm_mesh_coll" pos="-0.0240477 0.00378125 0.0323296" quat="0.0442297 0.00061027 -0.999021 -2.70192e-05" type="mesh" mesh="rh_palm_hull_mir" />
       <body name="rh_index_L1" pos="-0.028 -0.009 0.096" quat="0.685925 0.0469841 -0.714476 -0.129704">
