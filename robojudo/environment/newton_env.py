@@ -59,31 +59,17 @@ from robojudo.utils.util_func import quat_rotate_inverse_np, quatToEuler
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------- #
-# Ability-hand finger mapping (composed h1_2_box_feet_ability_hands.xml only).
-#
-# 6 DRIVEN dof/hand (mirrors the real Ability Hand + h1_2_ability_cfg.py's
-# `DRIVEN_FINGER_JOINTS_EXPR`): 4 finger MCP-equivalent joints (this MJCF's
-# ``{finger}_q1``) + 2 independently-actuated thumb joints (``thumb_q1``
-# rotator, ``thumb_q2`` flexor). This module's own convention (NOT verified
-# against the original ProtoMotions training action order -- see module
-# docstring in h1_2_lift_teacher_onnx_policy.py) fixes per-hand order as:
-#   [index_q1, middle_q1, ring_q1, pinky_q1, thumb_q1, thumb_q2]
-# ``hand_pose`` passed to :meth:`NewtonEnv.step` is 12-dim = concat(left(6), right(6)).
-_HAND_DRIVEN_JOINTS = ["index_q1", "middle_q1", "ring_q1", "pinky_q1", "thumb_q1", "thumb_q2"]
-_HAND_SIDES = ("lh_", "rh_")  # left, right (matches compose_h1_2_ability_hands.py prefixes)
-# 4 non-thumb fingers: q2 (distal/PIP-equivalent) is NOT independently actuated on real
-# hardware -- it is mechanically coupled to q1 by a 4-bar linkage (see ability_hand_coupling.py).
-_HAND_COUPLED_JOINTS = [(f"{fin}_q2", f"{fin}_q1") for fin in COUPLED_FINGERS]
-# Joint limits (identical across both hands -- verified against both
-# ability_hand_{left,right}_large.xml source MJCFs), used to clip commands to
-# something the real hand could physically reach.
-_HAND_JOINT_LIMITS = {
-    "index_q1": (0.0, 1.74), "middle_q1": (0.0, 1.74), "ring_q1": (0.0, 1.74), "pinky_q1": (0.0, 1.74),
-    "thumb_q1": (-1.74, 0.0), "thumb_q2": (0.0, 1.74),
-}
-_HAND_FINGER_STIFFNESS = 8.0  # matches imprint_isaaclab_ext.wbc.h1_2_ability_cfg._FINGER_STIFFNESS
-_HAND_FINGER_DAMPING = 0.3  # matches imprint_isaaclab_ext.wbc.h1_2_ability_cfg._FINGER_DAMPING
+# Ability-hand joint tables now live in ability_hand_coupling (warp-free), so
+# MuJoCo-only and real-hardware consumers can read them without importing warp.
+# Re-exported here so existing `from newton_env import _HAND_*` keeps working.
+from robojudo.environment.utils.ability_hand_coupling import (  # noqa: E402,F401
+    _HAND_COUPLED_JOINTS,
+    _HAND_DRIVEN_JOINTS,
+    _HAND_FINGER_DAMPING,
+    _HAND_FINGER_STIFFNESS,
+    _HAND_JOINT_LIMITS,
+    _HAND_SIDES,
+)
 
 
 @env_registry.register

@@ -304,6 +304,11 @@ class UnitreeEnv(Environment):
         # FK
         if self.update_with_fk:
             fk_info = self.fk()
+            # Publish the whole FK dict, like mujoco_env/newton_env/dummy_env do.
+            # Without this `env_data.fk_info` is None on HARDWARE ONLY, so any
+            # policy reading a body pose from FK (e.g. the ori-reach teacher's
+            # wrist state) worked in every sim lane and failed on the robot.
+            self._fk_info = fk_info.copy()
             self._torso_pos = fk_info[self._torso_name]["pos"]
             if self.robot not in ("h1", "h1_2"):
                 self._torso_quat = fk_info[self._torso_name]["quat"]
