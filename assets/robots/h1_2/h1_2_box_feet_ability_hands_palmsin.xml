@@ -1,49 +1,49 @@
 <mujoco model="h1_2">
   <compiler angle="radian" />
   <asset>
-    <mesh name="pelvis" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/pelvis.STL" />
-    <mesh name="left_hip_yaw_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_hip_yaw_link.STL" />
-    <mesh name="left_hip_pitch_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_hip_pitch_link.STL" />
-    <mesh name="left_hip_roll_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_hip_roll_link.STL" />
-    <mesh name="left_knee_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_knee_link.STL" />
-    <mesh name="left_ankle_pitch_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_ankle_pitch_link.STL" />
-    <mesh name="left_ankle_roll_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_ankle_roll_link.STL" />
-    <mesh name="right_hip_yaw_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_hip_yaw_link.STL" />
-    <mesh name="right_hip_pitch_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_hip_pitch_link.STL" />
-    <mesh name="right_hip_roll_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_hip_roll_link.STL" />
-    <mesh name="right_knee_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_knee_link.STL" />
-    <mesh name="right_ankle_pitch_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_ankle_pitch_link.STL" />
-    <mesh name="right_ankle_roll_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_ankle_roll_link.STL" />
-    <mesh name="torso_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/torso_link.STL" />
-    <mesh name="left_shoulder_pitch_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_shoulder_pitch_link.STL" />
-    <mesh name="left_shoulder_roll_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_shoulder_roll_link.STL" />
-    <mesh name="left_shoulder_yaw_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_shoulder_yaw_link.STL" />
-    <mesh name="left_elbow_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_elbow_link.STL" />
-    <mesh name="left_wrist_roll_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_wrist_roll_link.STL" />
-    <mesh name="left_wrist_pitch_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/left_wrist_pitch_link.STL" />
-    <mesh name="wrist_yaw_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/wrist_yaw_link.STL" />
-    <mesh name="right_shoulder_pitch_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_shoulder_pitch_link.STL" />
-    <mesh name="right_shoulder_roll_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_shoulder_roll_link.STL" />
-    <mesh name="right_shoulder_yaw_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_shoulder_yaw_link.STL" />
-    <mesh name="right_elbow_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_elbow_link.STL" />
-    <mesh name="right_wrist_roll_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_wrist_roll_link.STL" />
-    <mesh name="right_wrist_pitch_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/right_wrist_pitch_link.STL" />
-    <mesh name="logo_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/logo_link.STL" />
-    <mesh name="L_hand_base_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/L_hand_base_link.STL" />
-    <mesh name="R_hand_base_link" file="../../../../ProtoMotions/protomotions/data/assets/mesh/H1_2/R_hand_base_link.STL" />
-    <mesh name="wrist_mount_ring" file="../../../../../assets/cad/H1_2_wrist_no_camera.STL" scale="0.001 0.001 0.001" />
-    <mesh name="lh_palm_hull" file="../../../../ability-hand-api/URDF/models/palm_hull.STL" content_type="model/stl" />
-    <mesh name="lh_idx-F1-hull" file="../../../../ability-hand-api/URDF/models/idx-F1-hull.STL" content_type="model/stl" />
-    <mesh name="lh_idx-F2-Lg-hull" file="../../../../ability-hand-api/URDF/models/idx-F2-Lg-hull.STL" content_type="model/stl" />
-    <mesh name="lh_idx-F2-hull" file="../../../../ability-hand-api/URDF/models/idx-F2-hull.STL" content_type="model/stl" />
-    <mesh name="lh_thumb-F1-hull" file="../../../../ability-hand-api/URDF/models/thumb-F1-hull.STL" content_type="model/stl" />
-    <mesh name="lh_thumb-F2-hull" file="../../../../ability-hand-api/URDF/models/thumb-F2-hull.STL" content_type="model/stl" />
-    <mesh name="rh_palm_hull_mir" file="../../../../ability-hand-api/URDF/models/palm_hull_mir.STL" content_type="model/stl" />
-    <mesh name="rh_idx-F1-hull" file="../../../../ability-hand-api/URDF/models/idx-F1-hull.STL" />
-    <mesh name="rh_idx-F2-Lg-hull" file="../../../../ability-hand-api/URDF/models/idx-F2-Lg-hull.STL" />
-    <mesh name="rh_idx-F2-hull" file="../../../../ability-hand-api/URDF/models/idx-F2-hull.STL" />
-    <mesh name="rh_thumb-F1-MIR-hull" file="../../../../ability-hand-api/URDF/models/thumb-F1-MIR-hull.STL" content_type="model/stl" />
-    <mesh name="rh_thumb-F2-hull" file="../../../../ability-hand-api/URDF/models/thumb-F2-hull.STL" />
+    <mesh name="pelvis" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/pelvis.STL" />
+    <mesh name="left_hip_yaw_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_hip_yaw_link.STL" />
+    <mesh name="left_hip_pitch_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_hip_pitch_link.STL" />
+    <mesh name="left_hip_roll_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_hip_roll_link.STL" />
+    <mesh name="left_knee_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_knee_link.STL" />
+    <mesh name="left_ankle_pitch_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_ankle_pitch_link.STL" />
+    <mesh name="left_ankle_roll_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_ankle_roll_link.STL" />
+    <mesh name="right_hip_yaw_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_hip_yaw_link.STL" />
+    <mesh name="right_hip_pitch_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_hip_pitch_link.STL" />
+    <mesh name="right_hip_roll_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_hip_roll_link.STL" />
+    <mesh name="right_knee_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_knee_link.STL" />
+    <mesh name="right_ankle_pitch_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_ankle_pitch_link.STL" />
+    <mesh name="right_ankle_roll_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_ankle_roll_link.STL" />
+    <mesh name="torso_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/torso_link.STL" />
+    <mesh name="left_shoulder_pitch_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_shoulder_pitch_link.STL" />
+    <mesh name="left_shoulder_roll_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_shoulder_roll_link.STL" />
+    <mesh name="left_shoulder_yaw_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_shoulder_yaw_link.STL" />
+    <mesh name="left_elbow_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_elbow_link.STL" />
+    <mesh name="left_wrist_roll_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_wrist_roll_link.STL" />
+    <mesh name="left_wrist_pitch_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/left_wrist_pitch_link.STL" />
+    <mesh name="wrist_yaw_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/wrist_yaw_link.STL" />
+    <mesh name="right_shoulder_pitch_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_shoulder_pitch_link.STL" />
+    <mesh name="right_shoulder_roll_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_shoulder_roll_link.STL" />
+    <mesh name="right_shoulder_yaw_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_shoulder_yaw_link.STL" />
+    <mesh name="right_elbow_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_elbow_link.STL" />
+    <mesh name="right_wrist_roll_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_wrist_roll_link.STL" />
+    <mesh name="right_wrist_pitch_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/right_wrist_pitch_link.STL" />
+    <mesh name="logo_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/logo_link.STL" />
+    <mesh name="L_hand_base_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/L_hand_base_link.STL" />
+    <mesh name="R_hand_base_link" file="/home/glvov/projects/imprint-latest/third_party/ProtoMotions/protomotions/data/assets/mesh/H1_2/R_hand_base_link.STL" />
+    <mesh name="wrist_mount_ring" file="/home/glvov/projects/imprint-latest/assets/cad/H1_2_wrist_no_camera.STL" scale="0.001 0.001 0.001" />
+    <mesh name="lh_palm_hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/palm_hull.STL" content_type="model/stl" />
+    <mesh name="lh_idx-F1-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/idx-F1-hull.STL" content_type="model/stl" />
+    <mesh name="lh_idx-F2-Lg-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/idx-F2-Lg-hull.STL" content_type="model/stl" />
+    <mesh name="lh_idx-F2-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/idx-F2-hull.STL" content_type="model/stl" />
+    <mesh name="lh_thumb-F1-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/thumb-F1-hull.STL" content_type="model/stl" />
+    <mesh name="lh_thumb-F2-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/thumb-F2-hull.STL" content_type="model/stl" />
+    <mesh name="rh_palm_hull_mir" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/palm_hull_mir.STL" content_type="model/stl" />
+    <mesh name="rh_idx-F1-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/idx-F1-hull.STL" />
+    <mesh name="rh_idx-F2-Lg-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/idx-F2-Lg-hull.STL" />
+    <mesh name="rh_idx-F2-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/idx-F2-hull.STL" />
+    <mesh name="rh_thumb-F1-MIR-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/thumb-F1-MIR-hull.STL" content_type="model/stl" />
+    <mesh name="rh_thumb-F2-hull" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/thumb-F2-hull.STL" />
     <mesh name="lh_wristmesh_vis" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/wristmesh.STL" />
     <mesh name="lh_FB_palm_ref_vis" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/FB_palm_ref.STL" />
     <mesh name="lh_idx_F1_vis" file="/home/glvov/projects/imprint-latest/third_party/ability-hand-api/URDF/models/idx-F1.STL" />

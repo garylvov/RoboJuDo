@@ -49,12 +49,12 @@ HAND_MESH_BASE = f"{WT}/assets/psyonic_ability_hand/mjcf/"  # hand file= paths a
 OUT_DIR = f"{WT}/third_party/RoboJuDo/assets/robots/h1_2"
 
 # SINGLE SOURCE OF TRUTH: every mount pos/quat, the standoff, ring pose and variant table
-# come from imprint's h1_2_asset_config (stdlib-only; loaded by FILE PATH so this script
+# come from imprint's asset_factory (stdlib-only; loaded by FILE PATH so this script
 # stays runnable under a bare python with no imprint install). NEVER re-declare any of
 # those constants here -- 2026-08-02's left-hand flip and 1.5mm seat-gap bugs were exactly
 # this script and the USD factory reading different hardcoded copies.
-_CFG_PATH = os.path.join(WT, "src/imprint/integrations/unitree_lab/h1_2_asset_config.py")
-_spec = importlib.util.spec_from_file_location("h1_2_asset_config", _CFG_PATH)
+_CFG_PATH = os.path.join(WT, "src/imprint/integrations/unitree_lab/asset_factory.py")
+_spec = importlib.util.spec_from_file_location("asset_factory", _CFG_PATH)
 CFG = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = CFG  # dataclass field resolution needs the module registered
 _spec.loader.exec_module(CFG)
