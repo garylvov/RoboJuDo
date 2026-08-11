@@ -146,6 +146,7 @@ class ProtoMotionsTrackerPolicy(Policy):
             self._ref_source = LiveRefSource(
                 default_dof_pos=self._default_dof_pos,
                 anchor_idx=self._anchor_idx,
+                control_dt=timing["control_dt"],
             )
             logger.info("[TrackerPolicy] teleop_ref ON -- using LiveRefSource")
         else:
@@ -246,16 +247,63 @@ class ProtoMotionsTrackerPolicy(Policy):
         # payload lives under the "TeleopCtrl" key.  Missing/None arrays are
         # skipped (the LiveRefSource keeps its last / seeded default value).
         if self._teleop_ref:
-            teleop = ctrl_data.get("TeleopCtrl", {}) if ctrl_data is not None else {}
+            # The payload key is the CONTROLLER's ctrl_type: upstream
+            # RoboJuDo's TeleopCtrl publishes under "TeleopCtrl", imprint's
+            # ImprintTeleopCtrl (the gated lane since it moved off the
+            # upstream cfg) under "ImprintTeleopCtrl". Reading only the
+            # former silently starved this pump in the gated lane -- the
+            # LiveRefSource held its seeded standing default forever and the
+            # robot ignored teleop while everything upstream looked healthy.
+            teleop = {}
+            if ctrl_data is not None:
+                teleop = (
+                    ctrl_data.get("TeleopCtrl")
+                    or ctrl_data.get("ImprintTeleopCtrl")
+                    or {}
+                )
+            # Per-engage heading re-arm, ordering-proof: the provider stamps
+            # the engage generation its reference is consistent with; a change
+            # means the operator re-clutched, so the yaw offset captured
+            # against the previous engage's anchor row is stale. Clearing it
+            # here -- BEFORE the pump and the lazy recapture below -- makes
+            # the recapture see this tick's fresh anchor row and the robot's
+            # current yaw, so the relative heading command restarts at zero
+            # (no lurch) on EVERY engage, not just the first. The
+            # gated_inference engage watcher does the same thing when its
+            # registration wins the race with the first align; this is the
+            # authoritative path. Idempotent with it.
+            gen = teleop.get("engage_generation", None)
+            if gen is not None and teleop.get("ref_anchor_pos", None) is not None:
+                # Scoped to operator-as-odom (ref_anchor_pos present): the
+                # default lane keeps its existing lazy capture + watcher
+                # behaviour, byte-identical.
+                last_gen = getattr(self, "_teleop_engage_generation", None)
+                if last_gen is None or gen != last_gen:
+                    # Also fires on the FIRST odom tick (last_gen None): any
+                    # offset captured during the pre-engage default-pose hold
+                    # was measured against the seeded identity row, not the
+                    # odom row, and must not survive into tracking.
+                    self._heading_offset = None
+                self._teleop_engage_generation = gen
             ref_dof_pos = teleop.get("ref_dof_pos", None)
             ref_dof_vel = teleop.get("ref_dof_vel", None)
             ref_body_rot = teleop.get("ref_body_rot", None)
+            # Optional operator-as-odom position channel (imprint teleop):
+            # a stitched-continuous operator torso trajectory. When present,
+            # the LiveRefSource grows a body_pos anchor channel and the
+            # anchor-position displacement command below becomes live instead
+            # of falling back to zero. None -> previous behaviour.
+            ref_anchor_pos = teleop.get("ref_anchor_pos", None)
             if (
                 ref_dof_pos is not None
                 and ref_dof_vel is not None
                 and ref_body_rot is not None
             ):
-                self._ref_source.update(ref_dof_pos, ref_dof_vel, ref_body_rot)
+                self._ref_source.update(
+                    ref_dof_pos, ref_dof_vel, ref_body_rot,
+                    anchor_pos=ref_anchor_pos,
+                    engage_generation=gen,
+                )
         # --- end imprint teleop seam ---
 
         # -- Heading alignment (first step after reset) --
