@@ -14,6 +14,79 @@
 
 ---
 
+## 0. What to deploy — pinned code and the policy choice
+
+Added 2026-08-11, after the campaign that produced these artifacts closed out.
+Pin these commits; do not write "main", which moves.
+
+| repo | remote | commit |
+|---|---|---|
+| ProtoMotions | `github.com/garylvov/ProtoMotions` | `a956d1e6cb1a10d1026aa4c024fe5e002df7d601` |
+| GR00T-WholeBodyControl | `github.com/garylvov/GR00T-WholeBodyControl` | `4e3d6a09313e4ae5f771f4b0373acb8c65de7f1e` |
+| imprint | `github.com/garylvov-chewy/imprint` | branch `glvov/canonical-campaign-20260811` |
+
+**Verify a pin before trusting it.** The imprint handoff originally pinned
+`9ac9d13` for ProtoMotions, and that pin was false: the tree the campaign
+actually trained from has no `.git` at all, differed from the pinned commit in
+19 files, and was missing both the world-size root fix and the proof scripts
+backing the findings. `a956d1e` is the commit after those were ported across.
+The general lesson applies here too — diff the commit against the tree that
+ran before believing a table like the one above.
+
+### The policy to deploy: `v62_ep6050`
+
+Not `v67_ep50`, even though `v67_ep50` tracks better on clean evaluation
+(3.25 cm body / 2.07 cm wrist against 3.40 / 2.21, paired per-clip,
+p < 0.0001). Under perturbation `v67_ep50` degrades more in **all six**
+conditions tested, and deployment is a perturbed setting by definition.
+
+`v62_ep6050` on `canonical_eval_v1` (284 clips, deterministic MuJoCo, nominal
+gains): **SR 94.4% / body 3.40 cm / wrist 2.21 cm**.
+
+### Robustness — the numbers that should size your safety margins
+
+All-clips deltas (see the metric warning below):
+
+| condition | Δ body error | Δ SR |
+|---|---|---|
+| payload ×1.5 | +0.44 cm | −2.5 |
+| payload ×2.5 | +2.49 cm | −8.8 |
+| wrist wrench 35 N | +1.08 cm | −3.2 |
+| wrist wrench 70 N | +6.69 cm | −14.8 |
+| actuator gain 0.7 | +1.36 cm | −6.0 |
+| actuator gain 1.3 | −0.01 cm | −0.4 |
+
+Two things follow directly for hardware:
+
+1. **Gain error is asymmetric — err STIFF, not soft.** 1.3 is nearly free;
+   0.7 costs 6 SR points. If you are choosing which side to miss on when
+   tuning real actuator gains, miss high.
+2. **`deep_hinge_crouch` is the fragile category** — 72.5% SR nominal, and it
+   collapses to 40% under a 70 N wrist wrench. Deep-crouch behaviours should
+   not be the first thing demonstrated on hardware under external load.
+
+**Metric warning, because it inverts a conclusion.** Historical numbers in
+this campaign were success-only means, which are survivorship-biased exactly
+when a perturbation bites. Under ×2.5 payload the success-only body error
+*improves* 3.40 → 3.04 cm while the all-clips truth degrades 5.51 → **8.00**.
+Quoting the success-only column would have reported a 26 kg backpack as making
+the policy better. Every number in the table above is all-clips.
+
+### The masked-mimic student is NOT a general policy
+
+If you are handed a masked-mimic checkpoint from this campaign, know what it
+is. The current best (`teleop5` ep8200) reaches 11.16 cm wrist / 7.33 cm body
+at conditioning gap 0.10 — and on the conditioning spec it stopped training
+on (`sparse3`) it has roughly **doubled** in error at every gap, 15.18 → 30.40
+cm at gap 0.10. It is a teleop5-only policy. Do not deploy it against a
+different conditioning spec and do not describe it as multi-conditioning.
+
+Full campaign detail, including the conditioning findings and the ghost-render
+procedure: `docs/MM_CAMPAIGN_HANDOFF.md` in the imprint repo, on the branch
+pinned above.
+
+---
+
 ## 1. What RoboJuDo is to us
 
 RoboJuDo is the **deployment / sim2real control stack** for the Unitree H1-2.
