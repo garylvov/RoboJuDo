@@ -372,10 +372,12 @@ class LiveRefSource:
         num_bodies: int = 29,
         anchor_idx: int = 0,
         default_dof_pos: np.ndarray | None = None,
+        control_dt: float = 0.02,
     ):
         self._num_dofs = int(num_dofs)
         self._num_bodies = int(num_bodies)
         self._anchor_idx = int(anchor_idx)
+        self._control_dt = float(control_dt)
 
         if default_dof_pos is None:
             seed_dof_pos = np.zeros(self._num_dofs, dtype=np.float32)
@@ -390,6 +392,32 @@ class LiveRefSource:
         self._dof_pos = seed_dof_pos.copy()
         self._dof_vel = np.zeros(self._num_dofs, dtype=np.float32)
         self._body_rot = identity_rot
+        # Optional operator-as-odom anchor position channel (imprint teleop).
+        # None until the first update() that carries anchor_pos; then the
+        # served states grow a "body_pos" array whose ANCHOR row is this
+        # position (the only row the tracker reads -- see
+        # ProtoMotionsTrackerPolicy's displacement command). Future references
+        # extrapolate with an EMA'd finite-difference velocity, since a live
+        # stream has no real look-ahead and a zero-order hold would zero the
+        # (future - current) displacement command. ROOT channel only: joint
+        # references are untouched.
+        self._anchor_pos: np.ndarray | None = None
+        self._anchor_vel = np.zeros(3, dtype=np.float32)
+        self._anchor_vel_ema_alpha = 0.2
+        # Operator-as-odom look-ahead buffer. The tracker's actor conditions
+        # on FUTURE references (future_dof_pos/dof_vel/anchor_rot at +1..+8
+        # steps); with a pure zero-order hold the "future" equals the present,
+        # so the policy sees a reference that is static over its horizon and
+        # station-keeps -- the walking gait in the dofs never becomes a
+        # locomotion command. When odom is active (anchor_pos fed), the served
+        # "current" reference is DELAYED by up to `_lookahead_steps` ticks and
+        # the newer samples become genuine futures -- the same leading
+        # reference playback feeds, at the cost of ~0.16 s of teleop latency.
+        # Flushed on engage-generation change so a re-clutch never serves a
+        # pre-engage reference against a post-engage alignment.
+        self._lookahead_steps = 8
+        self._history: list[dict] = []
+        self._history_generation = None
 
     @property
     def total_frames(self) -> int:
@@ -408,20 +436,87 @@ class LiveRefSource:
         dof_pos: np.ndarray,
         dof_vel: np.ndarray,
         body_rot: np.ndarray,
+        anchor_pos: np.ndarray | None = None,
+        engage_generation=None,
     ) -> None:
-        """Push the latest retargeted reference (buffered, zero-order hold)."""
+        """Push the latest retargeted reference.
+
+        ``anchor_pos`` (3,) is the optional operator-as-odom anchor position
+        (a stitched-CONTINUOUS trajectory by the provider's contract -- it
+        never jumps across a clutch, so the finite-difference velocity below
+        never spikes). ``None`` keeps the previous behaviour exactly: latest
+        sample only, zero-order hold, no position channel served.
+
+        With ``anchor_pos``, samples also enter the look-ahead buffer (see
+        ``__init__``); ``engage_generation`` flushes it on change so the
+        served "current" can never be a pre-engage sample.
+        """
         self._dof_pos = np.asarray(dof_pos, dtype=np.float32).reshape(self._num_dofs)
         self._dof_vel = np.asarray(dof_vel, dtype=np.float32).reshape(self._num_dofs)
         self._body_rot = np.asarray(body_rot, dtype=np.float32).reshape(
             self._num_bodies, 4
         )
+        if anchor_pos is None:
+            return
+        p = np.asarray(anchor_pos, dtype=np.float32).reshape(3)
+        if self._anchor_pos is None:
+            self._anchor_vel = np.zeros(3, dtype=np.float32)
+        else:
+            raw_vel = (p - self._anchor_pos) / self._control_dt
+            a = self._anchor_vel_ema_alpha
+            self._anchor_vel = (
+                a * raw_vel + (1.0 - a) * self._anchor_vel
+            ).astype(np.float32)
+        self._anchor_pos = p
+
+        if engage_generation != self._history_generation:
+            self._history_generation = engage_generation
+            self._history = []
+            self._anchor_vel = np.zeros(3, dtype=np.float32)
+        self._history.append(
+            {
+                "dof_pos": self._dof_pos,
+                "dof_vel": self._dof_vel,
+                "body_rot": self._body_rot,
+                "anchor_pos": p,
+            }
+        )
+        if len(self._history) > self._lookahead_steps + 1:
+            self._history.pop(0)
+
+    def _anchor_body_pos(self, p: np.ndarray) -> np.ndarray:
+        """(num_bodies, 3) with every row = ``p``.
+
+        Only the ANCHOR row is meaningful (the tracker reads nothing else);
+        the other rows repeat it so the shape duck-types MotionPlayer's.
+        """
+        return np.broadcast_to(p, (self._num_bodies, 3)).astype(np.float32)
+
+    def _sample(self, offset: int) -> dict:
+        """History sample ``offset`` steps ahead of the served "current"."""
+        idx = min(offset, len(self._history) - 1)
+        return self._history[idx]
 
     def get_state_at_frame(self, frame_idx: int) -> Dict[str, np.ndarray]:
-        """Return the latest buffered reference (``frame_idx`` is ignored)."""
+        """Return the served "current" reference (``frame_idx`` is ignored).
+
+        Without odom this is the LATEST buffered sample (previous behaviour).
+        With odom it is the OLDEST sample in the look-ahead buffer -- the
+        reference runs ``len(history)-1`` ticks (up to 0.16 s) behind the
+        operator so the newer samples can serve as genuine futures.
+        """
+        if not self._history:
+            return {
+                "dof_pos":  self._dof_pos,
+                "dof_vel":  self._dof_vel,
+                "body_rot": self._body_rot,
+            }
+        cur = self._sample(0)
         return {
-            "dof_pos":  self._dof_pos,
-            "dof_vel":  self._dof_vel,
-            "body_rot": self._body_rot,
+            "dof_pos":  cur["dof_pos"],
+            "dof_vel":  cur["dof_vel"],
+            "body_rot": cur["body_rot"],
+            "body_pos": self._anchor_body_pos(cur["anchor_pos"]),
         }
 
     def get_future_references(
@@ -429,12 +524,36 @@ class LiveRefSource:
         frame_idx: int,
         step_indices: List[int],
     ) -> Dict[str, np.ndarray]:
-        """Return the latest reference replicated ``len(step_indices)`` times."""
+        """Future references ``step_indices`` ticks ahead of the current.
+
+        Without odom: the latest reference replicated (previous behaviour).
+        With odom: genuine future samples from the look-ahead buffer; steps
+        beyond the newest sample hold it, with the anchor POSITION alone
+        extrapolated by the EMA'd anchor velocity (ROOT channel only -- joint
+        references are never extrapolated).
+        """
         n = len(step_indices)
+        if not self._history:
+            return {
+                "dof_pos":  np.broadcast_to(self._dof_pos, (n, self._num_dofs)).copy(),
+                "dof_vel":  np.broadcast_to(self._dof_vel, (n, self._num_dofs)).copy(),
+                "body_rot": np.broadcast_to(
+                    self._body_rot, (n, self._num_bodies, 4)
+                ).copy(),
+            }
+        newest = len(self._history) - 1
+        samples = [self._sample(int(step)) for step in step_indices]
+        body_pos = []
+        for step, s in zip(step_indices, samples):
+            p = s["anchor_pos"]
+            overshoot = int(step) - newest
+            if overshoot > 0:
+                p = p + self._anchor_vel * (overshoot * self._control_dt)
+            body_pos.append(self._anchor_body_pos(p))
         return {
-            "dof_pos":  np.broadcast_to(self._dof_pos, (n, self._num_dofs)).copy(),
-            "dof_vel":  np.broadcast_to(self._dof_vel, (n, self._num_dofs)).copy(),
-            "body_rot": np.broadcast_to(
-                self._body_rot, (n, self._num_bodies, 4)
-            ).copy(),
+            "dof_pos":  np.stack([s["dof_pos"] for s in samples]),
+            "dof_vel":  np.stack([s["dof_vel"] for s in samples]),
+            "body_rot": np.stack([s["body_rot"] for s in samples]),
+            "body_pos": np.stack(body_pos),
         }
+
