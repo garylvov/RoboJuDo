@@ -23,6 +23,7 @@ Sensor requirements (real G1)
 """
 
 import logging
+import os
 import re
 
 import numpy as np
@@ -154,6 +155,14 @@ class ProtoMotionsTrackerPolicy(Policy):
         # --- end imprint teleop seam ---
 
         self._heading_offset = None
+        # Operator-as-odom commanded-root anchors (teleop_ref only; see the
+        # displacement-command block in get_observation). Recaptured whenever
+        # the heading offset is recaptured (per engage / reset), so unlimited
+        # re-clutches restart the commanded trajectory at the robot's
+        # then-current anchor with zero error.
+        self._cmd_ref_p0 = None
+        self._cmd_robot_p0 = None
+        self._cmd_offset = None
         self.reset()
 
     # Default standing pose per robot (from protomotions.robot_configs.*).
@@ -229,6 +238,7 @@ class ProtoMotionsTrackerPolicy(Policy):
 
     def reset_alignment(self):
         self._heading_offset = None
+        self._cmd_ref_p0 = None
 
     def post_step_callback(self, commands=None):
         if not self._paused and not self._default_pose_mode:
@@ -307,10 +317,12 @@ class ProtoMotionsTrackerPolicy(Policy):
         # --- end imprint teleop seam ---
 
         # -- Heading alignment (first step after reset) --
+        heading_recaptured = False
         if self._heading_offset is None:
             motion_anchor_rot = self._ref_source.get_state_at_frame(0)["body_rot"][self._anchor_idx]
             robot_anchor_rot = self._get_anchor_quat(env_data)
             self._heading_offset = compute_yaw_offset_np(robot_anchor_rot, motion_anchor_rot)
+            heading_recaptured = True
 
         # -- State from env_data (already xyzw) --
         anchor_rot = self._get_anchor_quat(env_data)
@@ -368,7 +380,53 @@ class ProtoMotionsTrackerPolicy(Policy):
             ref_body_pos = future_refs.get("body_pos")
             cur_motion_state = self._ref_source.get_state_at_frame(self._frame)
             cur_body_pos = cur_motion_state.get("body_pos")
-            if ref_body_pos is not None and cur_body_pos is not None:
+            if ref_body_pos is not None and cur_body_pos is not None and self._teleop_ref:
+                # Operator-as-odom (teleop_ref + a live position channel):
+                # feed an ABSOLUTE commanded root trajectory in the robot's
+                # world frame, anchored per engage:
+                #
+                #   cmd(t+k) = robot_p@capture
+                #            + R(heading_offset@capture) * (op_p(t+k) - op_p@capture)
+                #
+                # so the ONNX obs kernel's displacement (future - current
+                # anchor, rotated into the robot's live heading) reproduces
+                # the TRAINING semantics: ref_future - robot_now, i.e. the
+                # robot's own tracking error feeds back and it catches up to
+                # the commanded trajectory instead of open-loop-following a
+                # feedforward velocity (the previous ref-delta feed, which
+                # walked at ~25% of the commanded speed because the error
+                # term never accumulated). XY only: the Z channel stays the
+                # previous feedforward ref-delta on top of the robot's
+                # current height (odom commands XY+heading, never an
+                # absolute height -- operator and robot torso heights don't
+                # share a scale).
+                cur_ref_p = cur_body_pos[self._anchor_idx]
+                if heading_recaptured or self._cmd_ref_p0 is None:
+                    self._cmd_ref_p0 = cur_ref_p.copy()
+                    self._cmd_robot_p0 = anchor_pos.copy()
+                    self._cmd_offset = self._heading_offset.copy()
+                ref_delta = ref_body_pos[:, self._anchor_idx, :] - self._cmd_ref_p0
+                cmd = self._cmd_robot_p0[None, :] + quat_rotate_np(
+                    self._cmd_offset, ref_delta
+                )
+                # Z: feedforward delta over the horizon (previous behaviour).
+                cmd[:, 2] = anchor_pos[2] + (
+                    ref_body_pos[:, self._anchor_idx, 2]
+                    - cur_body_pos[self._anchor_idx, 2]
+                )
+                # Bound the XY displacement obs the policy will see. Training
+                # never shows multi-metre displacements (max ~ref speed *
+                # 0.4 s horizon plus modest tracking error); a reference
+                # discontinuity (e.g. a looped tape, a dropped stream) must
+                # degrade to a max-speed walk command, not an
+                # out-of-distribution sprint.
+                disp_xy = cmd[:, :2] - anchor_pos[None, :2]
+                norms = np.linalg.norm(disp_xy, axis=-1, keepdims=True)
+                max_disp = 1.0
+                scale = np.where(norms > max_disp, max_disp / np.maximum(norms, 1e-9), 1.0)
+                cmd[:, :2] = anchor_pos[None, :2] + disp_xy * scale
+                future_anchor_pos = cmd
+            elif ref_body_pos is not None and cur_body_pos is not None:
                 motion_delta = (
                     ref_body_pos[:, self._anchor_idx, :] - cur_body_pos[self._anchor_idx]
                 )
@@ -381,6 +439,70 @@ class ProtoMotionsTrackerPolicy(Policy):
                 # LiveRefSource, which only tracks dof_pos/dof_vel/body_rot).
                 # Fall back to a zero displacement command.
                 future_anchor_pos = np.tile(anchor_pos, (future_anchor_rot.shape[0], 1))
+
+        # --- imprint ghost seam (additive) ---
+        # Stamp the reference pose for THIS tick (frame t, the state the
+        # tracking metrics pair with rollout tick t) plus the commanded root,
+        # for the translucent reference ghost the sim lanes draw
+        # (imprint.robojudo.teleop.ghost.install_env_ghost). Pure annotation:
+        # nothing below reads it. Commanded root XY reproduces the odom
+        # displacement command at k=0 (same anchors as the future_anchor_pos
+        # block above); without odom it is the robot's own anchor (the
+        # command is "stay put"). Yaw is the heading-aligned reference anchor
+        # yaw -- exactly what future_anchor_rot feeds the ONNX.
+        try:
+            if self._default_pose_mode:
+                _g_dof = self._default_dof_pos
+                _g_pos = anchor_pos
+                _g_rot = _extract_yaw_quat_np(anchor_rot)
+            else:
+                _g_cur = self._ref_source.get_state_at_frame(self._frame)
+                _g_dof = _g_cur["dof_pos"]
+                _g_rot = apply_heading_offset_np(
+                    self._heading_offset, _g_cur["body_rot"][None]
+                )[0][self._anchor_idx]
+                _g_pos = anchor_pos
+                _g_cbp = _g_cur.get("body_pos")
+                if (self._teleop_ref and self._cmd_ref_p0 is not None
+                        and _g_cbp is not None):
+                    _g_d = _g_cbp[self._anchor_idx] - self._cmd_ref_p0
+                    _g_p = self._cmd_robot_p0 + quat_rotate_np(self._cmd_offset, _g_d)
+                    _g_pos = np.array([_g_p[0], _g_p[1], anchor_pos[2]],
+                                      dtype=np.float32)
+            self.last_ghost_reference = {
+                "dof_pos": np.asarray(_g_dof, dtype=np.float32).copy(),
+                "root_pos": np.asarray(_g_pos, dtype=np.float32).copy(),
+                # xyzw quat -> yaw
+                "root_yaw": float(2.0 * np.arctan2(_g_rot[2], _g_rot[3])),
+            }
+        except Exception:  # noqa: BLE001 -- the ghost must never break tracking
+            self.last_ghost_reference = None
+        # --- end imprint ghost seam ---
+
+        if os.environ.get("IMPRINT_ODOM_DEBUG"):
+            self._dbg_n = getattr(self, "_dbg_n", 0) + 1
+            if self._dbg_n % 25 == 1:
+                _teleop_keys = None
+                if self._teleop_ref and ctrl_data is not None:
+                    _t = (
+                        ctrl_data.get("TeleopCtrl")
+                        or ctrl_data.get("ImprintTeleopCtrl")
+                        or {}
+                    )
+                    _teleop_keys = {
+                        "ref_anchor_pos": _t.get("ref_anchor_pos", None),
+                        "gen": _t.get("engage_generation", None),
+                    }
+                _disp = future_anchor_pos - anchor_pos[None, :]
+                _hist = len(getattr(self._ref_source, "_history", []))
+                _vel = getattr(self._ref_source, "_anchor_vel", None)
+                print(
+                    f"[odom-dbg] n={self._dbg_n} default_pose={self._default_pose_mode} "
+                    f"teleop={_teleop_keys} hist_len={_hist} ema_vel={_vel} "
+                    f"disp_norms={[round(float(np.linalg.norm(d[:2])), 4) for d in _disp]} "
+                    f"disp_step4_xy={_disp[3][:2] if _disp.shape[0] > 3 else None}",
+                    flush=True,
+                )
 
         # -- Build ONNX inputs --
         key_to_array = {
