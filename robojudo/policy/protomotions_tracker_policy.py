@@ -256,7 +256,13 @@ class ProtoMotionsTrackerPolicy(Policy):
         # source before it is read below.  ctrl_data is a Box; the TeleopCtrl
         # payload lives under the "TeleopCtrl" key.  Missing/None arrays are
         # skipped (the LiveRefSource keeps its last / seeded default value).
-        if self._teleop_ref:
+        # _paused must also freeze the LIVE reference: for a MotionPlayer,
+        # pausing the frame counter (post_step_callback) is enough, but the
+        # LiveRefSource ignores the frame argument and serves whatever was
+        # last update()d -- so keep pumping while paused and the robot keeps
+        # following the operator with "freeze ON" in the log. Skipping the
+        # update leaves the last buffered reference held, which IS the freeze.
+        if self._teleop_ref and not self._paused:
             # The payload key is the CONTROLLER's ctrl_type: upstream
             # RoboJuDo's TeleopCtrl publishes under "TeleopCtrl", imprint's
             # ImprintTeleopCtrl (the gated lane since it moved off the

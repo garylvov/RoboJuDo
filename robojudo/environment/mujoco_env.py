@@ -83,6 +83,34 @@ class MujocoEnv(Environment):
         if self.use_implicit_pd:
             self._configure_implicit_pd_actuators(cfg_env)
 
+        # Name-based dof addressing. update() used to read the robot's joint
+        # state as qpos[-num_dofs:]/qvel[-num_dofs:], which silently assumes
+        # the robot's actuated joints are the LAST joints in the model. That
+        # breaks the moment the MJCF is runtime-patched with extra free-joint
+        # bodies AFTER the robot (imprint's projectile cubes): the tail slice
+        # then returns the cubes' free-joint coordinates as "joint state",
+        # feeding garbage observations to the policy from tick 0. Resolve the
+        # configured joints' qpos/qvel addresses by NAME once here instead;
+        # fall back to the legacy tail slice only if a name is missing.
+        self._dof_qpos_idx = None
+        self._dof_qvel_idx = None
+        joint_names = list(cfg_env.dof.joint_names)
+        qpos_idx, qvel_idx = [], []
+        for name in joint_names:
+            jnt_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            if jnt_id < 0:
+                logger.warning(
+                    f"[MujocoEnv] dof joint '{name}' not found in model -- "
+                    "falling back to positional qpos tail slice"
+                )
+                qpos_idx = None
+                break
+            qpos_idx.append(int(self.model.jnt_qposadr[jnt_id]))
+            qvel_idx.append(int(self.model.jnt_dofadr[jnt_id]))
+        if qpos_idx is not None and len(qpos_idx) == self.num_dofs:
+            self._dof_qpos_idx = np.asarray(qpos_idx, dtype=np.intp)
+            self._dof_qvel_idx = np.asarray(qvel_idx, dtype=np.intp)
+
         # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
         mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -244,8 +272,12 @@ class MujocoEnv(Environment):
 
     def update(self, simple=False):  # TODO: clean sensors in xml
         """simple: only update dof pos & vel"""
-        dof_pos = self.data.qpos.astype(np.float32)[-self.num_dofs :]
-        dof_vel = self.data.qvel.astype(np.float32)[-self.num_dofs :]
+        if self._dof_qpos_idx is not None:
+            dof_pos = self.data.qpos[self._dof_qpos_idx].astype(np.float32)
+            dof_vel = self.data.qvel[self._dof_qvel_idx].astype(np.float32)
+        else:
+            dof_pos = self.data.qpos.astype(np.float32)[-self.num_dofs :]
+            dof_vel = self.data.qvel.astype(np.float32)[-self.num_dofs :]
 
         self._dof_pos = dof_pos.copy()
         self._dof_vel = dof_vel.copy()

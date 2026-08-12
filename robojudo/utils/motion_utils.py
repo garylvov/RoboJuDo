@@ -351,9 +351,11 @@ class LiveRefSource:
     - ``total_frames`` -- a very large constant (the stream never ends)
     - ``get_state_at_frame(frame)`` -- returns the latest buffered reference
       (the ``frame`` argument is ignored; there is no history)
-    - ``get_future_references(frame, step_indices)`` -- the latest reference
-      replicated ``len(step_indices)`` times (a zero-order hold: we have no
-      look-ahead for a live stream)
+    - ``get_future_references(frame, step_indices)`` -- self-consistent
+      futures obtained by first-order integrating the latest ``dof_vel`` over
+      the requested control-step offsets (no genuine look-ahead exists for a
+      live stream; see the method docstring for why this beats a naive
+      zero-order hold for a future-conditioned tracker)
     - ``update(dof_pos, dof_vel, body_rot)`` -- push a new reference
 
     Before the first :meth:`update`, a seeded default is returned:
@@ -430,6 +432,10 @@ class LiveRefSource:
     @property
     def num_dofs(self) -> int:
         return self._num_dofs
+
+    @property
+    def control_dt(self) -> float:
+        return self._control_dt
 
     def update(
         self,
@@ -526,7 +532,22 @@ class LiveRefSource:
     ) -> Dict[str, np.ndarray]:
         """Future references ``step_indices`` ticks ahead of the current.
 
-        Without odom: the latest reference replicated (previous behaviour).
+        Without odom (no look-ahead history): self-consistent futures obtained
+        by first-order integrating the latest ``dof_vel`` over the requested
+        control-step offsets. A live stream has no genuine look-ahead, but a
+        *naive* zero-order hold (replicate the single latest frame across all
+        future steps) is worse than it looks for a future-conditioned tracker:
+        it makes ``future_dof_pos`` static across steps ``[1,2,4,8]`` while
+        ``future_dof_vel`` stays nonzero -- an internally inconsistent,
+        out-of-distribution reference (during training the 4 futures genuinely
+        advance and are consistent with the reported velocity). Integrating
+        ``future_dof_pos = dof_pos + (s * control_dt) * dof_vel`` and reporting
+        the same ``dof_vel`` for every step (a constant-velocity model over the
+        short horizon) keeps position and velocity mutually consistent -- the
+        cheapest way to remove the ZOH distribution shift. ``body_rot`` has no
+        live angular-velocity signal (the anchor row is pinned to identity by
+        the retargeter), so it stays a zero-order hold.
+
         With odom: genuine future samples from the look-ahead buffer; steps
         beyond the newest sample hold it, with the anchor POSITION alone
         extrapolated by the EMA'd anchor velocity (ROOT channel only -- joint
@@ -534,8 +555,13 @@ class LiveRefSource:
         """
         n = len(step_indices)
         if not self._history:
+            offsets = np.asarray(step_indices, dtype=np.float32).reshape(n, 1)
+            dt = self._control_dt
+            future_dof_pos = (
+                self._dof_pos[None, :] + (offsets * dt) * self._dof_vel[None, :]
+            ).astype(np.float32)
             return {
-                "dof_pos":  np.broadcast_to(self._dof_pos, (n, self._num_dofs)).copy(),
+                "dof_pos":  future_dof_pos,
                 "dof_vel":  np.broadcast_to(self._dof_vel, (n, self._num_dofs)).copy(),
                 "body_rot": np.broadcast_to(
                     self._body_rot, (n, self._num_bodies, 4)
