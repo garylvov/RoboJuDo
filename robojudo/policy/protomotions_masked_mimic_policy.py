@@ -423,7 +423,18 @@ class ProtoMotionsMaskedMimicPolicy(Policy):
             and not self._paused
             and ctrl_data is not None
         ):
-            teleop = ctrl_data.get("TeleopCtrl", {})
+            # Controller-key mismatch (same fix as protomotions_tracker_policy):
+            # imprint's gated lane registers ImprintTeleopCtrl, upstream
+            # RoboJuDo registers TeleopCtrl. Reading only the latter silently
+            # starved this pump under `gated_inference mujoco --teleop tape`:
+            # the policy fell back to the seeded MotionPlayer reference and
+            # produced BIT-IDENTICAL rollouts for different tapes while every
+            # log line upstream looked healthy.
+            teleop = (
+                ctrl_data.get("TeleopCtrl")
+                or ctrl_data.get("ImprintTeleopCtrl")
+                or {}
+            )
             world = teleop.get("world_targets", None)
             if world:
                 live = {}
