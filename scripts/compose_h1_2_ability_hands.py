@@ -136,19 +136,23 @@ def compose(variant: str, out_dir: str) -> str:
     bodies = {b.attrib.get("name"): b for b in h1_root.iter("body")}
 
     # mount adapter ring: one mesh asset (STL is mm -> scale 0.001), one visual-only
-    # geom per wrist at the mount seat (see RING comment above).
-    ring_mesh = ET.SubElement(h1_asset, "mesh")
-    ring_mesh.attrib.update(
-        {"name": "wrist_mount_ring", "file": os.path.normpath(RING_STL),
-         "scale": " ".join([f"{CFG.RING_MESH_SCALE:.10g}"] * 3)}
-    )
-    for side in ("left", "right"):
-        ring = ET.SubElement(bodies[f"{side}_wrist_yaw_link"], "geom")
-        ring.attrib.update(
-            {"name": f"{side[0]}h_wrist_mount_ring", "type": "mesh",
-             "mesh": "wrist_mount_ring", "pos": mount_pos, "quat": RING_QUAT,
-             "group": "1", "contype": "0", "conaffinity": "0", "rgba": RING_RGBA}
+    # geom per wrist at the mount seat (see RING comment above). Gated on the factory's
+    # CFG.MOUNT_ADAPTER_MODELLED -- the switch lives there, not here, because this script
+    # is the SECOND home of the ring (the USD tactile chain is the other) and two homes
+    # with two switches is how the ring came to be in the MJCF and absent from the USD.
+    if CFG.MOUNT_ADAPTER_MODELLED:
+        ring_mesh = ET.SubElement(h1_asset, "mesh")
+        ring_mesh.attrib.update(
+            {"name": "wrist_mount_ring", "file": os.path.normpath(RING_STL),
+             "scale": " ".join([f"{CFG.RING_MESH_SCALE:.10g}"] * 3)}
         )
+        for side in ("left", "right"):
+            ring = ET.SubElement(bodies[f"{side}_wrist_yaw_link"], "geom")
+            ring.attrib.update(
+                {"name": f"{side[0]}h_wrist_mount_ring", "type": "mesh",
+                 "mesh": "wrist_mount_ring", "pos": mount_pos, "quat": RING_QUAT,
+                 "group": "1", "contype": "0", "conaffinity": "0", "rgba": RING_RGBA}
+            )
 
     for prefix, mount in mounts.items():
         hand_src = HAND_L if prefix == "lh_" else HAND_R
@@ -209,7 +213,7 @@ def compose(variant: str, out_dir: str) -> str:
         if j.attrib.get("name", "").startswith(("lh_", "rh_"))
     ]
     print(f"wrote {out}  (variant={variant}, mounts: "
-          f"lh {mounts['lh_']['quat']} | rh {mounts['rh_']['quat']}, ring injected)")
+          f"lh {mounts['lh_']['quat']} | rh {mounts['rh_']['quat']}, ring %s)" % ("injected" if CFG.MOUNT_ADAPTER_MODELLED else "OFF"))
     print(f"finger joints ({len(finger_joints)}): {finger_joints}")
     return out
 
