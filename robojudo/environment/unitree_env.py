@@ -62,6 +62,12 @@ class UnitreeEnv(Environment):
 
         self.sport_state: SportModeState = None
         self.low_state: LowStateHG | LowStateGo = None
+        #: DEAD_TIME_V1: perf_counter at the last lowstate arrival, and a
+        #: monotonic message count. Written ONLY by the DDS handler; read by
+        #: imprint.robojudo.dead_time. Initialised before Init() so a read
+        #: before the first message cannot raise.
+        self._ls_arrival: float = 0.0
+        self._ls_seq: int = 0
 
         if self._msg_type == "hg":
             # g1 and h1_2 use the hg msg type
@@ -192,10 +198,17 @@ class UnitreeEnv(Environment):
         self.sport_state = msg
 
     def LowStateHgHandler(self, msg: LowStateHG):
+        # DEAD_TIME_V1: stamp arrival + count, so a consumer can measure how old
+        # the sample it acts on is. Two ops on a 500 Hz callback (~100 ns).
+        self._ls_arrival = time.perf_counter()
+        self._ls_seq += 1
         self.low_state = msg
         # self.mode_machine_ = self.low_state.mode_machine
 
     def LowStateGoHandler(self, msg: LowStateGo):
+        # DEAD_TIME_V1 -- see LowStateHgHandler.
+        self._ls_arrival = time.perf_counter()
+        self._ls_seq += 1
         self.low_state = msg
 
     def update(self):
