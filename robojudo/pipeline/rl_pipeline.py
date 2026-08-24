@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 import numpy as np
@@ -20,6 +21,12 @@ from robojudo.utils.progress import ProgressBar
 from robojudo.utils.util_func import get_gravity_orientation
 
 logger = logging.getLogger(__name__)
+
+
+
+def _sense_late_enabled() -> bool:
+    """SENSE_LATE_V1: opt in with IMPRINT_SENSE_LATE=1 (default OFF)."""
+    return os.environ.get("IMPRINT_SENSE_LATE", "0") == "1"
 
 
 class PolicyWrapper:
@@ -271,12 +278,68 @@ class RlPipeline(Pipeline):
                 timestep=self.timestep,
             )
 
+    def _ctrl_manager_has_hook(self) -> bool:
+        """SENSE_LATE_V1 guard: does any controller actually consume env_data?
+
+        Only ``ControllerHook`` receives it (ctrl_manager.py:63-66). If one is
+        present the reorder would hand it a stale (or None) env_data, so the
+        original order is kept. Cached: the controller set is fixed after
+        construction, and this runs every tick.
+        """
+        cached = getattr(self, "_imprint_ctrl_has_hook", None)
+        if cached is None:
+            try:
+                from robojudo.controller import ControllerHook
+                cached = any(
+                    isinstance(c.inst, ControllerHook)
+                    for c in self.ctrl_manager.controllers.values()
+                )
+            except Exception:  # noqa: BLE001 -- unknown shape: assume a hook
+                cached = True
+            self._imprint_ctrl_has_hook = cached
+        return bool(cached)
+
     def step(self, dry_run=False):
+        # SENSE_LATE_V1 (2026-08-24). The figure of merit for the leg/waist
+        # oscillation is sense->act DELAY, not loop rate: lockstep sim (0 ms)
+        # is stable, async sim (16.6 ms) shakes, real (~25-30 ms) is worse.
+        #
+        # This loop samples proprioception at the TOP and publishes at the
+        # BOTTOM, so on the real lane the command lands ~27 ms after the state
+        # it was computed from (measured, tracking phase of 0824_0026:
+        # env_update 3.40 + teleop_recv 4.01 + obs_build 0.48 + policy 17.39 +
+        # motor_send 1.80). `teleop_recv` -- 4.01 ms of ZMQ drain + operator
+        # deserialisation -- sits INSIDE that path while contributing nothing
+        # to it: it is the REFERENCE, not the feedback.
+        #
+        # Draining it BEFORE the state sample moves those 4 ms out of the
+        # feedback path. The reference becomes ~4 ms older, which is harmless
+        # (a slow-moving operator target); the feedback becomes ~4 ms fresher,
+        # which is phase margin at the mode frequency.
+        #
+        # SAFE ONLY WHEN NO CONTROLLER IS A ControllerHook: a plain Controller
+        # gets `controller.inst.get_data()` and never sees `env_data`
+        # (ctrl_manager.py:63-66), and TeleopCtrl is deliberately a plain
+        # Controller (teleop_ctrl.py:78). Under that guard the reorder is
+        # value-identical, not merely "close enough". A hook lane keeps the
+        # original order, because there `env_data` is a real input.
+        #
+        # NOT pipelining: the policy still runs on THIS tick's observation.
+        # Computing tick N's command from tick N-1's state would raise the
+        # rate while ADDING a full tick of feedback delay -- the exact wrong
+        # trade for a delay-driven instability.
+        #
+        # Default OFF: opt in with IMPRINT_SENSE_LATE=1.
+        ctrl_data = None
+        if _sense_late_enabled() and not self._ctrl_manager_has_hook():
+            ctrl_data = self.ctrl_manager.get_ctrl_data(None)
+
         with self.recorder.measure("robot_state"):
             self.env.update()
             env_data = self.env.get_data()
 
-        ctrl_data = self.ctrl_manager.get_ctrl_data(env_data)
+        if ctrl_data is None:
+            ctrl_data = self.ctrl_manager.get_ctrl_data(env_data)
 
         commands = ctrl_data.get("COMMANDS", [])
         if len(commands) > 0:
