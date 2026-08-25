@@ -37,6 +37,3 @@ policy_registry.add("KungfuBotGeneralPolicy", ".kungfubot_policy")
 policy_registry.add("TwistPolicy", ".twist_policy")
 policy_registry.add("ProtoMotionsTrackerPolicy", ".protomotions_tracker_policy")
 policy_registry.add("MockPolicy", ".mock_policy")  # hardware-free deploy-test policy
-policy_registry.add("OnnxPolicy", ".onnx_policy")  # generic onnxruntime + LSTM state runner
-policy_registry.add("H1_2LiftTeacherOnnxPolicy", ".h1_2_lift_teacher_onnx_policy")
-policy_registry.add("H1_2ReachTeacherOnnxPolicy", ".h1_2_reach_teacher_onnx_policy")
